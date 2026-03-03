@@ -1,0 +1,30 @@
+# Build
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Rider
+.idea/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# App settings sensibles
+appsettings.Development.json
+
+# EF (aunque no uses migraciones)
+Migrations/
+
+# Publish
+publish/
+
+# Secrets
+*.env

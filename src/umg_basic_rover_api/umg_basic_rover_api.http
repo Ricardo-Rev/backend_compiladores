@@ -1,0 +1,6 @@
+@umg_basic_rover_api_HostAddress = http://localhost:5056
+
+GET {{umg_basic_rover_api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
