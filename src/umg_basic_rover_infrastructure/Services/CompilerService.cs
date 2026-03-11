@@ -22,7 +22,8 @@ public class CompilerService : ICompilerService
 
     public async Task<CompileResponse> CompileAsync(CompileRequest request, int usuario_id, int sesion_id)
     {
-        _logger.LogInformation("[COMPILER] Iniciando compilación. Usuario: {u} | Modo: {m}", usuario_id, request.modo);
+        var safeModo = request.modo?.Replace(Environment.NewLine, string.Empty).Replace("\n", string.Empty).Replace("\r", string.Empty);
+_logger.LogInformation("[COMPILER] Iniciando compilación. Usuario: {u} | Modo: {m}", usuario_id, safeModo);
         var sw = Stopwatch.StartNew();
         var response = new CompileResponse();
 
