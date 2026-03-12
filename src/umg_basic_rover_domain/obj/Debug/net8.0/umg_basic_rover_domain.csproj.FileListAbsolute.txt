@@ -1,0 +1,12 @@
+C:\Users\DELL\Desktop\compiladoresProyecto\UMGBasicRoverBackend\src\umg_basic_rover_domain\bin\Debug\net8.0\umg_basic_rover_domain.deps.json
+C:\Users\DELL\Desktop\compiladoresProyecto\UMGBasicRoverBackend\src\umg_basic_rover_domain\bin\Debug\net8.0\umg_basic_rover_domain.dll
+C:\Users\DELL\Desktop\compiladoresProyecto\UMGBasicRoverBackend\src\umg_basic_rover_domain\bin\Debug\net8.0\umg_basic_rover_domain.pdb
+C:\Users\DELL\Desktop\compiladoresProyecto\UMGBasicRoverBackend\src\umg_basic_rover_domain\obj\Debug\net8.0\umg_basic_rover_domain.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\DELL\Desktop\compiladoresProyecto\UMGBasicRoverBackend\src\umg_basic_rover_domain\obj\Debug\net8.0\umg_basic_rover_domain.AssemblyInfoInputs.cache
+C:\Users\DELL\Desktop\compiladoresProyecto\UMGBasicRoverBackend\src\umg_basic_rover_domain\obj\Debug\net8.0\umg_basic_rover_domain.AssemblyInfo.cs
+C:\Users\DELL\Desktop\compiladoresProyecto\UMGBasicRoverBackend\src\umg_basic_rover_domain\obj\Debug\net8.0\umg_basic_rover_domain.csproj.CoreCompileInputs.cache
+C:\Users\DELL\Desktop\compiladoresProyecto\UMGBasicRoverBackend\src\umg_basic_rover_domain\obj\Debug\net8.0\umg_basic_rover_domain.dll
+C:\Users\DELL\Desktop\compiladoresProyecto\UMGBasicRoverBackend\src\umg_basic_rover_domain\obj\Debug\net8.0\refint\umg_basic_rover_domain.dll
+C:\Users\DELL\Desktop\compiladoresProyecto\UMGBasicRoverBackend\src\umg_basic_rover_domain\obj\Debug\net8.0\umg_basic_rover_domain.pdb
+C:\Users\DELL\Desktop\compiladoresProyecto\UMGBasicRoverBackend\src\umg_basic_rover_domain\obj\Debug\net8.0\ref\umg_basic_rover_domain.dll
+C:\Users\DELL\Desktop\compiladoresProyecto\UMGBasicRoverBackend\src\umg_basic_rover_domain\obj\Debug\net8.0\umg_basic_rover_domain.sourcelink.json

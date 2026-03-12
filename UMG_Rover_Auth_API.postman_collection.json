@@ -1,0 +1,276 @@
+{
+  "info": {
+    "name": "UMG Rover - Auth API",
+    "_postman_id": "umg-rover-auth-api-v1",
+    "description": "Colección de endpoints del sistema de autenticación.\n\nINSTRUCCIONES DE USO:\n1. Importar este archivo en Postman (File > Import)\n2. Seleccionar el ambiente 'Local Development'\n3. Ejecutar el endpoint de Login o Register\n4. El token JWT se guardará automáticamente en la variable {{auth_token}}\n5. Los demás endpoints usarán el token automáticamente\n\nNOTA SOBRE RECAPTCHA EN POSTMAN:\nPara probar con Postman, usa el valor especial de prueba de Google:\n- Agrega el dominio 'localhost' en tu cuenta de Google reCAPTCHA\n- O usa el token de prueba: '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI'\n  (Este es el Secret Key de prueba oficial de Google para desarrollo)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:5000",
+      "description": "URL base de la API. Cambiar según el puerto que uses."
+    },
+    {
+      "key": "auth_token",
+      "value": "",
+      "description": "Token JWT. Se llena automáticamente al hacer login o register."
+    }
+  ],
+  "item": [
+    {
+      "name": "🔓 Auth (Sin autenticación)",
+      "item": [
+        {
+          "name": "POST - Register (Crear cuenta)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Guardar el token automáticamente después del registro",
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('auth_token', response.access_token);",
+                  "    console.log('✅ Token guardado en variable auth_token');",
+                  "    console.log('👤 Usuario creado:', response.user.name);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usuario\": \"jperez2025\",\n  \"email\": \"juan.perez@universidad.edu.gt\",\n  \"nombre_completo\": \"Juan Pérez García\",\n  \"password\": \"MiPassword123\",\n  \"telefono\": \"+502 1234-5678\",\n  \"recaptcha_token\": \"TOKEN_DE_RECAPTCHA_AQUI\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/register",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "register"]
+            },
+            "description": "Crea una nueva cuenta de usuario.\n\nCampos requeridos:\n- name: Nombre completo (mín. 3 chars)\n- email: Email válido y único\n- password: Contraseña (mín. 8 chars)\n- recaptcha_token: Token de Google reCAPTCHA v2\n\nRespuesta exitosa (200):\n- access_token: JWT para usar en peticiones protegidas\n- expires_in_seconds: Tiempo de validez del token (3600 = 1 hora)\n- user: Datos básicos del usuario creado\n\nErrores comunes:\n- 400: Datos inválidos o reCAPTCHA fallido\n- 400: Email ya registrado"
+          },
+          "response": [
+            {
+              "name": "✅ Registro Exitoso (200)",
+              "status": "OK",
+              "code": 200,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"access_token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c\",\n  \"expires_in_seconds\": 3600,\n  \"user\": {\n    \"id\": \"3fa85f64-5717-4562-b3fc-2c963f66afa6\",\n    \"name\": \"Juan Pérez García\",\n    \"email\": \"juan.perez@universidad.edu.gt\",\n    \"fecha_creacion\": \"2025-03-09T12:00:00Z\"\n  }\n}"
+            },
+            {
+              "name": "❌ Email duplicado (400)",
+              "status": "Bad Request",
+              "code": 400,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"error\": \"El correo electrónico ya está registrado.\"\n}"
+            },
+            {
+              "name": "❌ reCAPTCHA inválido (400)",
+              "status": "Bad Request",
+              "code": 400,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"error\": \"Verificación de seguridad fallida. Por favor, vuelve a intentarlo.\"\n}"
+            },
+            {
+              "name": "❌ Validación de campos (400)",
+              "status": "Bad Request",
+              "code": 400,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"error\": \"Datos inválidos.\",\n  \"detalles\": [\n    \"La contraseña debe tener al menos 8 caracteres.\",\n    \"El formato del correo electrónico no es válido.\"\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST - Login (Iniciar sesión)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Guardar el token automáticamente después del login",
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('auth_token', response.access_token);",
+                  "    console.log('✅ Token guardado en variable auth_token');",
+                  "    console.log('👤 Usuario logueado:', response.user.name);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"juan.perez@universidad.edu.gt\",\n  \"password\": \"MiPassword123\",\n  \"recaptcha_token\": \"TOKEN_DE_RECAPTCHA_AQUI\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Inicia sesión con email y contraseña.\n\nCampos requeridos:\n- email: Email del usuario registrado\n- password: Contraseña (mín. 8 chars)\n- recaptcha_token: Token de Google reCAPTCHA v2\n\nRespuesta exitosa (200):\n- access_token: Usar en header Authorization: Bearer {token}\n- expires_in_seconds: 3600 (1 hora de validez)\n- user: Datos del usuario\n\nErrores comunes:\n- 400: reCAPTCHA inválido\n- 401: Credenciales incorrectas"
+          },
+          "response": [
+            {
+              "name": "✅ Login Exitoso (200)",
+              "status": "OK",
+              "code": 200,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"access_token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c\",\n  \"expires_in_seconds\": 3600,\n  \"user\": {\n    \"id\": \"3fa85f64-5717-4562-b3fc-2c963f66afa6\",\n    \"name\": \"Juan Pérez García\",\n    \"email\": \"juan.perez@universidad.edu.gt\",\n    \"fecha_creacion\": \"2025-03-09T12:00:00Z\"\n  }\n}"
+            },
+            {
+              "name": "❌ Credenciales inválidas (401)",
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"error\": \"Credenciales inválidas.\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "🔒 Auth (Requieren token JWT)",
+      "item": [
+        {
+          "name": "POST - Logout (Cerrar sesión)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "description": "Token JWT obtenido del login/register"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/logout",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "logout"]
+            },
+            "description": "Cierra la sesión del usuario autenticado.\nRevoca el token JWT actual en la base de datos.\n\nDespués del logout:\n- El token queda inválido permanentemente\n- Cualquier request con ese token retornará 401\n- El usuario debe hacer login nuevamente\n\nRespuesta exitosa: 204 No Content (sin body)"
+          },
+          "response": [
+            {
+              "name": "✅ Logout Exitoso (204)",
+              "status": "No Content",
+              "code": 204,
+              "header": [],
+              "body": ""
+            },
+            {
+              "name": "❌ Sin autorización (401)",
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"error\": \"Sesión no activa o token revocado. Por favor inicia sesión de nuevo.\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET - Me (Info del usuario)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "description": "Token JWT obtenido del login/register"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/me",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "me"]
+            },
+            "description": "Retorna los datos del usuario actualmente autenticado.\nLos datos se extraen del token JWT (sin consultar la BD).\n\nRespuesta exitosa (200):\n- id: GUID del usuario\n- name: Nombre completo\n- email: Correo electrónico"
+          },
+          "response": [
+            {
+              "name": "✅ Info del Usuario (200)",
+              "status": "OK",
+              "code": 200,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"id\": \"3fa85f64-5717-4562-b3fc-2c963f66afa6\",\n  \"name\": \"Juan Pérez García\",\n  \"email\": \"juan.perez@universidad.edu.gt\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "🩺 Health Checks",
+      "item": [
+        {
+          "name": "GET - Health (Estado de la API)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Verifica que la API esté funcionando correctamente."
+          },
+          "response": [
+            {
+              "name": "✅ API Saludable (200)",
+              "status": "OK",
+              "code": 200,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"status\": \"healthy\",\n  \"timestamp\": \"2025-03-09T12:00:00Z\",\n  \"version\": \"1.0.0\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET - Health Database (Estado de la BD)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/health/database",
+              "host": ["{{base_url}}"],
+              "path": ["health", "database"]
+            },
+            "description": "Verifica la conexión con la base de datos SQL Server."
+          },
+          "response": [
+            {
+              "name": "✅ BD Conectada (200)",
+              "status": "OK",
+              "code": 200,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"status\": \"database connected\",\n  \"timestamp\": \"2025-03-09T12:00:00Z\"\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
