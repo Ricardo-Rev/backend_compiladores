@@ -1,31 +1,29 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using umg_basic_rover_application.Contracts;
 using umg_basic_rover_application.DTOs;
+using umg_basic_rover_infrastructure.persistence.context;
 
 namespace umg_basic_rover_api.Controllers;
 
 // ============================================================
-//  CONTROLADOR: AuthController
-//  Expone los endpoints HTTP del sistema de autenticación.
+//  AuthController — VERSIÓN COMPLETA
 //
-//  BASE URL: /api/auth
+//  CAMBIOS respecto a la versión original de Sergio:
+//  ✅ GET /me → retorna campos completos (rol, usuario, avatar_url,
+//               email_confirmado, telefono_confirmado, preferencias)
+//  ✅ POST /register → la credencial PDF se dispara en AuthService
+//                      (no hay cambio visible aquí, ya lo maneja el service)
 //
-//  ENDPOINTS DISPONIBLES:
-//  ┌─────────────────────────────────────────────────────────┐
-//  │ POST   /api/auth/register  → Crear nueva cuenta         │
-//  │ POST   /api/auth/login     → Iniciar sesión             │
-//  │ POST   /api/auth/logout    → Cerrar sesión              │
-//  │ GET    /api/auth/me        → Info del usuario actual    │
-//  └─────────────────────────────────────────────────────────┘
-//
-//  AUTENTICACIÓN:
-//  Los endpoints marcados con [Authorize] requieren el header:
-//  Authorization: Bearer {tu_token_jwt}
-//
-//  DOCUMENTACIÓN INTERACTIVA:
-//  Disponible en Swagger: http://localhost:{puerto}/swagger
+//  LO QUE NO CAMBIÓ (de Sergio, estaba bien):
+//  ✅ [AllowAnonymous] en register y login
+//  ✅ [Authorize] en logout y me
+//  ✅ Validación reCAPTCHA
+//  ✅ ModelState.IsValid
+//  ✅ Manejo diferenciado de excepciones
+//  ✅ Logging estructurado
 // ============================================================
 
 [ApiController]
@@ -33,58 +31,31 @@ namespace umg_basic_rover_api.Controllers;
 [Produces("application/json")]
 public class AuthController : ControllerBase
 {
-    private readonly IAuthService _auth;
-    private readonly IRecaptchaService _recaptcha;
-    private readonly ILogger<AuthController> _logger;
+    private readonly IAuthService              _auth;
+    private readonly IRecaptchaService         _recaptcha;
+    private readonly rover_db_context          _db;
+    private readonly ILogger<AuthController>   _logger;
 
     public AuthController(
-        IAuthService auth,
-        IRecaptchaService recaptcha,
+        IAuthService            auth,
+        IRecaptchaService       recaptcha,
+        rover_db_context        db,
         ILogger<AuthController> logger)
     {
         _auth      = auth;
         _recaptcha = recaptcha;
+        _db        = db;
         _logger    = logger;
     }
 
-    // ============================================================
+    // ════════════════════════════════════════════════════════
     //  POST /api/auth/register
-    // ============================================================
+    // ════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Registra un nuevo usuario en el sistema.
-    /// Valida el reCAPTCHA antes de crear la cuenta.
+    /// Registra un nuevo usuario. Valida reCAPTCHA, crea la cuenta,
+    /// emite JWT y dispara el envío de la credencial PDF automáticamente.
     /// </summary>
-    /// <remarks>
-    /// EJEMPLO DE REQUEST:
-    /// <code>
-    /// POST /api/auth/register
-    /// Content-Type: application/json
-    ///
-    /// {
-    ///   "name": "Juan Pérez",
-    ///   "email": "juan.perez@universidad.edu.gt",
-    ///   "password": "MiPassword123",
-    ///   "recaptcha_token": "03AGdBq25..."
-    /// }
-    /// </code>
-    ///
-    /// EJEMPLO DE RESPUESTA EXITOSA (200):
-    /// <code>
-    /// {
-    ///   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    ///   "expires_in_seconds": 3600,
-    ///   "user": {
-    ///     "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    ///     "name": "Juan Pérez",
-    ///     "email": "juan.perez@universidad.edu.gt",
-    ///     "fecha_creacion": "2025-03-09T12:00:00Z"
-    ///   }
-    /// }
-    /// </code>
-    /// </remarks>
-    /// <param name="dto">Datos del nuevo usuario + token de reCAPTCHA.</param>
-    /// <returns>Token JWT y datos del usuario creado.</returns>
     [HttpPost("register")]
     [AllowAnonymous]
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
@@ -94,91 +65,49 @@ public class AuthController : ControllerBase
     {
         try
         {
-            // 1. Validar campos del formulario (anotaciones de DataAnnotations)
             if (!ModelState.IsValid)
             {
                 var errors = ModelState.Values
                     .SelectMany(v => v.Errors)
                     .Select(e => e.ErrorMessage);
-
-                _logger.LogWarning("[REGISTER] ❌ Validación fallida: {Errors}", string.Join(" | ", errors));
+                _logger.LogWarning("[REGISTER] ❌ Validación fallida: {e}", string.Join(" | ", errors));
                 return BadRequest(new { error = "Datos inválidos.", detalles = errors });
             }
 
-            // 2. Validar reCAPTCHA con la API de Google
             _logger.LogInformation("[REGISTER] 🔍 Validando reCAPTCHA...");
-            var captcha_valido = await _recaptcha.ValidateAsync(dto.recaptcha_token);
-
-            if (!captcha_valido)
+            var captcha_ok = await _recaptcha.ValidateAsync(dto.recaptcha_token);
+            if (!captcha_ok)
             {
                 _logger.LogWarning("[REGISTER] ❌ reCAPTCHA inválido.");
-                return BadRequest(new { error = "Verificación de seguridad fallida. Por favor, vuelve a intentarlo." });
+                return BadRequest(new { error = "Verificación de seguridad fallida. Vuelve a intentarlo." });
             }
 
-            _logger.LogInformation("[REGISTER] ✅ reCAPTCHA válido. Procesando registro...");
-
-            // 3. Registrar al usuario
             var response = await _auth.RegisterAsync(dto);
 
-            _logger.LogInformation("[REGISTER] ✅ Registro exitoso: {Email}", dto.email);
+            _logger.LogInformation("[REGISTER] ✅ Registro exitoso: {e}", dto.email);
             return Ok(response);
         }
         catch (InvalidOperationException ex)
         {
-            // Error de negocio conocido (ej: email duplicado)
-            _logger.LogWarning("[REGISTER] ⚠️ Error de negocio: {Message}", ex.Message);
+            _logger.LogWarning("[REGISTER] ⚠️ Error de negocio: {m}", ex.Message);
             return BadRequest(new { error = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[REGISTER] ❌ Error inesperado para {Email}", dto?.email);
+            _logger.LogError(ex, "[REGISTER] ❌ Error inesperado para {e}", dto?.email);
             return StatusCode(500, new { error = "Error interno del servidor. Intenta más tarde." });
         }
     }
 
-    // ============================================================
+    // ════════════════════════════════════════════════════════
     //  POST /api/auth/login
-    // ============================================================
+    // ════════════════════════════════════════════════════════
 
     /// <summary>
     /// Inicia sesión con email y contraseña.
-    /// Valida el reCAPTCHA antes de verificar las credenciales.
+    /// Valida reCAPTCHA, verifica BCrypt y emite JWT.
+    /// Registra el ingreso en bitacora_accesos.
     /// </summary>
-    /// <remarks>
-    /// EJEMPLO DE REQUEST:
-    /// <code>
-    /// POST /api/auth/login
-    /// Content-Type: application/json
-    ///
-    /// {
-    ///   "email": "juan.perez@universidad.edu.gt",
-    ///   "password": "MiPassword123",
-    ///   "recaptcha_token": "03AGdBq25..."
-    /// }
-    /// </code>
-    ///
-    /// EJEMPLO DE RESPUESTA EXITOSA (200):
-    /// <code>
-    /// {
-    ///   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    ///   "expires_in_seconds": 3600,
-    ///   "user": {
-    ///     "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    ///     "name": "Juan Pérez",
-    ///     "email": "juan.perez@universidad.edu.gt",
-    ///     "fecha_creacion": "2025-03-09T12:00:00Z"
-    ///   }
-    /// }
-    /// </code>
-    ///
-    /// USO DEL TOKEN EN SIGUIENTES REQUESTS:
-    /// <code>
-    /// GET /api/auth/me
-    /// Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-    /// </code>
-    /// </remarks>
-    /// <param name="dto">Credenciales del usuario + token de reCAPTCHA.</param>
-    /// <returns>Token JWT y datos del usuario autenticado.</returns>
     [HttpPost("login")]
     [AllowAnonymous]
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
@@ -189,70 +118,48 @@ public class AuthController : ControllerBase
     {
         try
         {
-            // 1. Validar campos del formulario
             if (!ModelState.IsValid)
             {
                 var errors = ModelState.Values
                     .SelectMany(v => v.Errors)
                     .Select(e => e.ErrorMessage);
-
-                _logger.LogWarning("[LOGIN] ❌ Validación fallida: {Errors}", string.Join(" | ", errors));
+                _logger.LogWarning("[LOGIN] ❌ Validación fallida: {e}", string.Join(" | ", errors));
                 return BadRequest(new { error = "Datos inválidos.", detalles = errors });
             }
 
-            // 2. Validar reCAPTCHA con la API de Google
             _logger.LogInformation("[LOGIN] 🔍 Validando reCAPTCHA...");
-            var captcha_valido = await _recaptcha.ValidateAsync(dto.recaptcha_token);
-
-            if (!captcha_valido)
+            var captcha_ok = await _recaptcha.ValidateAsync(dto.recaptcha_token);
+            if (!captcha_ok)
             {
                 _logger.LogWarning("[LOGIN] ❌ reCAPTCHA inválido.");
-                return BadRequest(new { error = "Verificación de seguridad fallida. Por favor, vuelve a intentarlo." });
+                return BadRequest(new { error = "Verificación de seguridad fallida. Vuelve a intentarlo." });
             }
 
-            _logger.LogInformation("[LOGIN] ✅ reCAPTCHA válido. Verificando credenciales...");
-
-            // 3. Verificar credenciales
             var response = await _auth.LoginAsync(dto);
 
-            _logger.LogInformation("[LOGIN] ✅ Login exitoso: {Email}", dto.email);
+            _logger.LogInformation("[LOGIN] ✅ Login exitoso: {e}", dto.email);
             return Ok(response);
         }
         catch (UnauthorizedAccessException)
         {
-            // IMPORTANTE: No revelar si el email existe o no.
-            // Siempre responder con el mismo mensaje genérico.
-            _logger.LogWarning("[LOGIN] ❌ Credenciales inválidas para: {Email}", dto?.email);
+            _logger.LogWarning("[LOGIN] ❌ Credenciales inválidas para: {e}", dto?.email);
             return Unauthorized(new { error = "Credenciales inválidas." });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[LOGIN] ❌ Error inesperado para {Email}", dto?.email);
+            _logger.LogError(ex, "[LOGIN] ❌ Error inesperado para {e}", dto?.email);
             return StatusCode(500, new { error = "Error interno del servidor. Intenta más tarde." });
         }
     }
 
-    // ============================================================
+    // ════════════════════════════════════════════════════════
     //  POST /api/auth/logout
-    // ============================================================
+    // ════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Cierra la sesión del usuario autenticado.
-    /// Revoca el token JWT actual en la base de datos.
+    /// Cierra la sesión. Revoca el token JWT en BD
+    /// y registra la fecha_salida en bitacora_accesos.
     /// </summary>
-    /// <remarks>
-    /// EJEMPLO DE REQUEST:
-    /// <code>
-    /// POST /api/auth/logout
-    /// Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-    /// </code>
-    ///
-    /// RESPUESTA EXITOSA: 204 No Content (sin body)
-    ///
-    /// NOTA: Después del logout, el token queda inválido.
-    /// Cualquier request con ese token retornará 401 Unauthorized.
-    /// </remarks>
-    /// <returns>204 No Content al cerrar sesión correctamente.</returns>
     [Authorize]
     [HttpPost("logout")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -262,14 +169,13 @@ public class AuthController : ControllerBase
     {
         try
         {
-            var bearer = Request.Headers.Authorization.ToString();
+            var bearer  = Request.Headers.Authorization.ToString();
             var user_id = User.FindFirstValue(ClaimTypes.NameIdentifier);
 
-            _logger.LogInformation("[LOGOUT] 🚪 Usuario {UserId} cerrando sesión.", user_id);
-
+            _logger.LogInformation("[LOGOUT] 🚪 Usuario {id} cerrando sesión.", user_id);
             await _auth.LogoutAsync(bearer);
+            _logger.LogInformation("[LOGOUT] ✅ Sesión cerrada. Usuario {id}.", user_id);
 
-            _logger.LogInformation("[LOGOUT] ✅ Sesión cerrada correctamente para {UserId}.", user_id);
             return NoContent();
         }
         catch (Exception ex)
@@ -279,56 +185,81 @@ public class AuthController : ControllerBase
         }
     }
 
-    // ============================================================
+    // ════════════════════════════════════════════════════════
     //  GET /api/auth/me
-    // ============================================================
+    // ════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Retorna la información del usuario actualmente autenticado.
-    /// Los datos se extraen del token JWT (no consulta la BD).
+    /// Retorna el perfil completo del usuario autenticado.
+    /// Consulta la BD para incluir datos actualizados y preferencias del editor.
     /// </summary>
-    /// <remarks>
-    /// EJEMPLO DE REQUEST:
-    /// <code>
-    /// GET /api/auth/me
-    /// Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-    /// </code>
-    ///
-    /// EJEMPLO DE RESPUESTA (200):
-    /// <code>
-    /// {
-    ///   "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    ///   "name": "Juan Pérez",
-    ///   "email": "juan.perez@universidad.edu.gt"
-    /// }
-    /// </code>
-    /// </remarks>
-    /// <returns>Datos básicos del usuario autenticado.</returns>
     [Authorize]
     [HttpGet("me")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public IActionResult Me()
+    public async Task<IActionResult> Me()
     {
         try
         {
-            var id    = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var name  = User.FindFirstValue(ClaimTypes.Name);
-            var email = User.FindFirstValue(ClaimTypes.Email);
+            var uid_str = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!int.TryParse(uid_str, out int usuario_id))
+                return Unauthorized(new { error = "Token inválido." });
 
-            _logger.LogDebug("[ME] Consulta de info para usuario {UserId}.", id);
+            // Consultar BD para datos siempre actualizados
+            // (el JWT puede tener datos viejos si el usuario actualizó su perfil)
+            var usuario = await _db.usuarios
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.id == usuario_id && u.activo);
+
+            if (usuario is null)
+                return Unauthorized(new { error = "Usuario no encontrado o inactivo." });
+
+            // Obtener preferencias del editor
+            var prefs = await _db.preferencias_editor
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.usuario_id == usuario_id);
+
+            // Contar compilaciones del usuario
+            var total_compilaciones = await _db.compilaciones
+                .CountAsync(c => c.usuario_id == usuario_id);
+
+            _logger.LogDebug("[ME] Perfil consultado para usuario ID: {id}", usuario_id);
 
             return Ok(new
             {
-                id    = id,
-                name  = name,
-                email = email
+                // Datos de identidad
+                id                   = usuario.id,
+                usuario              = usuario.usuario,
+                nombre_completo      = usuario.nombre_completo,
+                email                = usuario.email,
+                email_confirmado     = usuario.email_confirmado,
+                telefono             = usuario.telefono,
+                telefono_confirmado  = usuario.telefono_confirmado,
+                avatar_url           = usuario.avatar_url,
+                rol                  = usuario.rol,
+                activo               = usuario.activo,
+                fecha_creacion       = usuario.fecha_creacion,
+                total_compilaciones  = total_compilaciones,
+
+                // Preferencias del editor (null si aún no existen)
+                preferencias = prefs is null ? null : new
+                {
+                    tema                     = prefs.tema,
+                    tamano_fuente            = prefs.tamano_fuente,
+                    fuente                   = prefs.fuente,
+                    color_keywords           = prefs.color_keywords,
+                    color_commands           = prefs.color_commands,
+                    color_parenthesis        = prefs.color_parenthesis,
+                    color_integers           = prefs.color_integers,
+                    interlineado             = prefs.interlineado,
+                    lenguaje_destino_default = prefs.lenguaje_destino_default
+                }
             });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[ME] ❌ Error inesperado.");
-            return StatusCode(500, new { error = "Error al obtener información del usuario." });
+            return StatusCode(500, new { error = "Error al obtener perfil." });
         }
     }
 }

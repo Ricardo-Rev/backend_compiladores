@@ -11,129 +11,166 @@ using umg_basic_rover_infrastructure.persistence.context;
 namespace umg_basic_rover_infrastructure.Services;
 
 // ============================================================
-//  IMPLEMENTACIÓN: AuthService
-//  Lógica principal del sistema de autenticación.
+//  AuthService — VERSIÓN COMPLETA
 //
-//  FLUJOS IMPLEMENTADOS:
-//  1. RegisterAsync → Valida unicidad, hashea BCrypt, emite JWT
-//  2. LoginAsync    → Verifica email + BCrypt, emite JWT
-//  3. LogoutAsync   → Revoca token marcando sesión como inactiva
+//  CAMBIOS respecto a la versión original de Sergio:
+//  ✅ RegisterAsync → llama a ICredentialService post-registro
+//  ✅ RegisterAsync → crea preferencias_editor por defecto
+//  ✅ LoginAsync    → registra en bitacora_accesos al ingresar
+//  ✅ LogoutAsync   → actualiza fecha_salida en bitacora_accesos
+//  ✅ EmitirTokenAsync → recibe metodo_login como parámetro
+//                        (soporta "password", "facial", "qr")
 //
-//  SEGURIDAD:
-//  ✅ Contraseñas hasheadas con BCrypt (workFactor=12)
-//  ✅ JWT firmado con HMAC-SHA256
-//  ✅ Solo el HASH del token se guarda en BD (columna session_token)
-//  ✅ Mensajes de error genéricos (no revelan si el email existe)
-//  ✅ Captura de IP y User-Agent en cada sesión
-//  ✅ Logging estructurado con prefijos claros
+//  LO QUE NO CAMBIÓ (de Sergio, estaba bien):
+//  ✅ BCrypt workFactor=12
+//  ✅ Hash SHA-256 del token en BD
+//  ✅ Mensajes genéricos en login
+//  ✅ Transacción en RegisterAsync
+//  ✅ Captura de IP y User-Agent
+//  ✅ Logging estructurado
 // ============================================================
 
 public class AuthService : IAuthService
 {
-    private readonly rover_db_context _db;
-    private readonly IJwtTokenService _jwt;
-    private readonly IHttpContextAccessor _http;
-    private readonly IConfiguration _config;
-    private readonly ILogger<AuthService> _logger;
+    private readonly rover_db_context       _db;
+    private readonly IJwtTokenService       _jwt;
+    private readonly IHttpContextAccessor   _http;
+    private readonly IConfiguration         _config;
+    private readonly ICredentialService     _credential;
+    private readonly ILogger<AuthService>   _logger;
 
     public AuthService(
-        rover_db_context db,
-        IJwtTokenService jwt,
+        rover_db_context     db,
+        IJwtTokenService     jwt,
         IHttpContextAccessor http,
-        IConfiguration config,
+        IConfiguration       config,
+        ICredentialService   credential,
         ILogger<AuthService> logger)
     {
-        _db     = db;
-        _jwt    = jwt;
-        _http   = http;
-        _config = config;
-        _logger = logger;
+        _db         = db;
+        _jwt        = jwt;
+        _http       = http;
+        _config     = config;
+        _credential = credential;
+        _logger     = logger;
     }
 
-    // ============================================================
-    //  REGISTRO DE NUEVO USUARIO
-    // ============================================================
+    // ════════════════════════════════════════════════════════
+    //  REGISTRO
+    // ════════════════════════════════════════════════════════
 
     public async Task<AuthResponse> RegisterAsync(RegisterRequest dto)
     {
-        _logger.LogInformation("[REGISTER] 🚀 Intento de registro. Usuario: {Usuario} | Email: {Email}",
+        _logger.LogInformation("[REGISTER] 🚀 Intento de registro. Usuario: {u} | Email: {e}",
             dto.usuario, dto.email);
 
-        // 1. Verificar que el nombre de usuario no esté en uso
+        // 1. Verificar unicidad de usuario
         var usuario_existe = await _db.usuarios
             .AsNoTracking()
             .AnyAsync(u => u.usuario == dto.usuario.Trim());
 
         if (usuario_existe)
         {
-            _logger.LogWarning("[REGISTER] ❌ Nombre de usuario duplicado: {Usuario}", dto.usuario);
+            _logger.LogWarning("[REGISTER] ❌ Nombre de usuario duplicado: {u}", dto.usuario);
             throw new InvalidOperationException("El nombre de usuario ya está en uso.");
         }
 
-        // 2. Verificar que el email no esté en uso
+        // 2. Verificar unicidad de email
         var email_existe = await _db.usuarios
             .AsNoTracking()
             .AnyAsync(u => u.email == dto.email.ToLower().Trim());
 
         if (email_existe)
         {
-            _logger.LogWarning("[REGISTER] ❌ Email duplicado: {Email}", dto.email);
+            _logger.LogWarning("[REGISTER] ❌ Email duplicado: {e}", dto.email);
             throw new InvalidOperationException("El correo electrónico ya está registrado.");
         }
 
-        // 3. Hashear la contraseña con BCrypt
-        // workFactor=12 → buen balance entre seguridad y velocidad
+        // 3. Hashear contraseña con BCrypt
         var password_hash = BCrypt.Net.BCrypt.HashPassword(dto.password, workFactor: 12);
-        _logger.LogDebug("[REGISTER] ✅ Contraseña hasheada con BCrypt (workFactor=12).");
 
-        // 4. Crear la entidad usuario con todos los campos requeridos por la BD
+        // 4. Crear entidad usuario
         var nuevo_usuario = new user_entity
         {
-            usuario           = dto.usuario.Trim(),
-            email             = dto.email.ToLower().Trim(),
-            email_confirmado  = false,         // Por defecto no confirmado
-            nombre_completo   = dto.nombre_completo.Trim(),
-            password_hash     = password_hash,
-            telefono          = dto.telefono.Trim(),
-            telefono_confirmado = false,       // Por defecto no confirmado
-            rol               = "conductor",  // Rol por defecto al registrarse
-            activo            = true,
-            fecha_creacion    = DateTime.Now
+            usuario              = dto.usuario.Trim(),
+            email                = dto.email.ToLower().Trim(),
+            email_confirmado     = false,
+            nombre_completo      = dto.nombre_completo.Trim(),
+            password_hash        = password_hash,
+            telefono             = dto.telefono.Trim(),
+            telefono_confirmado  = false,
+            rol                  = "conductor",
+            activo               = true,
+            fecha_creacion       = DateTime.Now
         };
 
-        // 5. Guardar en BD dentro de una transacción
-        await using var transaction = await _db.Database.BeginTransactionAsync();
-
+        // 5. Todo dentro de una transacción
+        await using var tx = await _db.Database.BeginTransactionAsync();
         try
         {
             _db.usuarios.Add(nuevo_usuario);
             await _db.SaveChangesAsync();
 
-            _logger.LogInformation("[REGISTER] ✅ Usuario creado en BD. ID: {UserId}", nuevo_usuario.id);
+            _logger.LogInformation("[REGISTER] ✅ Usuario creado en BD. ID: {id}", nuevo_usuario.id);
 
-            // 6. Emitir JWT → el usuario queda logueado inmediatamente tras registrarse
-            var response = await EmitirTokenAsync(nuevo_usuario);
+            // 6. Crear preferencias del editor con valores por defecto
+            //    El usuario tendrá su configuración visual lista desde el primer login
+            _db.preferencias_editor.Add(new preferencias_editor_entity
+            {
+                usuario_id               = nuevo_usuario.id,
+                tema                     = "dark",
+                tamano_fuente            = 14,
+                fuente                   = "Fira Code",
+                color_keywords           = "#4FC3F7",
+                color_commands           = "#87CEEB",
+                color_parenthesis        = "#66BB6A",
+                color_integers           = "#EF5350",
+                interlineado             = 1.5m,
+                lenguaje_destino_default = "python",
+                fecha_actualizacion      = DateTime.Now
+            });
+            await _db.SaveChangesAsync();
 
-            await transaction.CommitAsync();
+            // 7. Emitir JWT → usuario queda logueado inmediatamente
+            var response = await EmitirTokenAsync(nuevo_usuario, "password");
+
+            await tx.CommitAsync();
             _logger.LogInformation("[REGISTER] ✅ Transacción confirmada.");
+
+            // 8. Generar y enviar credencial PDF
+            //    Se hace FUERA de la transacción porque si el email falla
+            //    no debe revertir el registro. El usuario ya existe en BD.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _credential.GenerarYEnviarAsync(nuevo_usuario.id);
+                    _logger.LogInformation("[REGISTER] ✅ Credencial PDF enviada. Usuario ID: {id}", nuevo_usuario.id);
+                }
+                catch (Exception ex)
+                {
+                    // Error en PDF/email no debe afectar el registro exitoso
+                    _logger.LogError(ex, "[REGISTER] ⚠️ Error al enviar credencial. Usuario ID: {id}", nuevo_usuario.id);
+                }
+            });
 
             return response;
         }
         catch (Exception ex)
         {
-            await transaction.RollbackAsync();
+            await tx.RollbackAsync();
             _logger.LogError(ex, "[REGISTER] ❌ Error en transacción. Rollback ejecutado.");
             throw;
         }
     }
 
-    // ============================================================
+    // ════════════════════════════════════════════════════════
     //  LOGIN
-    // ============================================================
+    // ════════════════════════════════════════════════════════
 
     public async Task<AuthResponse> LoginAsync(LoginRequest dto)
     {
-        _logger.LogInformation("[LOGIN] 🔑 Intento de login: {Email}", dto.email);
+        _logger.LogInformation("[LOGIN] 🔑 Intento de login: {e}", dto.email);
 
         // 1. Buscar usuario por email
         var usuario = await _db.usuarios
@@ -141,31 +178,48 @@ public class AuthService : IAuthService
             .FirstOrDefaultAsync(u => u.email == dto.email.ToLower().Trim());
 
         // 2. Verificar existencia y estado
-        // SEGURIDAD: Mismo mensaje para "no existe" y "contraseña incorrecta"
-        // Esto evita "user enumeration attacks" (saber qué emails están registrados).
+        //    Mismo mensaje para "no existe" y "contraseña incorrecta"
+        //    Evita user enumeration attacks
         if (usuario is null || !usuario.activo)
         {
-            _logger.LogWarning("[LOGIN] ❌ Usuario no encontrado o inactivo: {Email}", dto.email);
+            _logger.LogWarning("[LOGIN] ❌ Usuario no encontrado o inactivo: {e}", dto.email);
             throw new UnauthorizedAccessException("Credenciales inválidas.");
         }
 
         // 3. Verificar contraseña con BCrypt
-        // BCrypt.Verify compara el texto plano contra el hash almacenado
         var password_ok = BCrypt.Net.BCrypt.Verify(dto.password, usuario.password_hash);
-
         if (!password_ok)
         {
-            _logger.LogWarning("[LOGIN] ❌ Contraseña incorrecta para usuario ID: {UserId}", usuario.id);
+            _logger.LogWarning("[LOGIN] ❌ Contraseña incorrecta. Usuario ID: {id}", usuario.id);
             throw new UnauthorizedAccessException("Credenciales inválidas.");
         }
 
-        _logger.LogInformation("[LOGIN] ✅ Login exitoso. Usuario ID: {UserId}", usuario.id);
-        return await EmitirTokenAsync(usuario);
+        // 4. Emitir JWT
+        var response = await EmitirTokenAsync(usuario, "password");
+
+        // 5. Registrar ingreso en bitacora_accesos
+        //    El Dashboard de admin necesita esta tabla para mostrar ingresos/salidas
+        var ip_origen  = _http.HttpContext?.Connection?.RemoteIpAddress?.ToString();
+        var user_agent = _http.HttpContext?.Request?.Headers["User-Agent"].ToString();
+
+        _db.bitacora_accesos.Add(new bitacora_acceso_entity
+        {
+            usuario_id    = usuario.id,
+            metodo_login  = "password",
+            ip_origen     = ip_origen,
+            user_agent    = user_agent,
+            fecha_ingreso = DateTime.Now,
+            fecha_salida  = null          // Se actualiza en LogoutAsync
+        });
+        await _db.SaveChangesAsync();
+
+        _logger.LogInformation("[LOGIN] ✅ Login exitoso. Usuario ID: {id}", usuario.id);
+        return response;
     }
 
-    // ============================================================
-    //  LOGOUT (REVOCACIÓN DE TOKEN)
-    // ============================================================
+    // ════════════════════════════════════════════════════════
+    //  LOGOUT
+    // ════════════════════════════════════════════════════════
 
     public async Task LogoutAsync(string bearer_token)
     {
@@ -180,11 +234,9 @@ public class AuthService : IAuthService
             return;
         }
 
-        // Calcular el hash del token para buscarlo en BD
         var token_hash = _jwt.ComputeSha256(token);
 
-        // Buscar la sesión activa con ese hash
-        // Nota: La columna en BD se llama 'session_token' y guarda el hash
+        // 1. Revocar sesión JWT
         var sesion = await _db.sesiones
             .FirstOrDefaultAsync(s => s.session_token == token_hash && s.activa);
 
@@ -192,7 +244,21 @@ public class AuthService : IAuthService
         {
             sesion.activa = false;
             await _db.SaveChangesAsync();
-            _logger.LogInformation("[LOGOUT] ✅ Sesión {SessionId} revocada correctamente.", sesion.id);
+            _logger.LogInformation("[LOGOUT] ✅ Sesión JWT {id} revocada.", sesion.id);
+
+            // 2. Registrar fecha_salida en bitacora_accesos
+            //    Busca el último acceso activo (sin fecha_salida) del usuario
+            var ultimo_acceso = await _db.bitacora_accesos
+                .Where(b => b.usuario_id == sesion.usuario_id && b.fecha_salida == null)
+                .OrderByDescending(b => b.fecha_ingreso)
+                .FirstOrDefaultAsync();
+
+            if (ultimo_acceso is not null)
+            {
+                ultimo_acceso.fecha_salida = DateTime.Now;
+                await _db.SaveChangesAsync();
+                _logger.LogInformation("[LOGOUT] ✅ Bitácora actualizada. Acceso ID: {id}", ultimo_acceso.id);
+            }
         }
         else
         {
@@ -200,48 +266,42 @@ public class AuthService : IAuthService
         }
     }
 
-    // ============================================================
-    //  MÉTODO PRIVADO: Generar Token + Registrar Sesión en BD
-    // ============================================================
+    // ════════════════════════════════════════════════════════
+    //  PRIVADO: Generar Token + Registrar Sesión en BD
+    // ════════════════════════════════════════════════════════
 
-    private async Task<AuthResponse> EmitirTokenAsync(user_entity usuario)
+    private async Task<AuthResponse> EmitirTokenAsync(user_entity usuario, string metodo_login)
     {
-        // Leer duración del token desde configuración
-        var expires_minutes = int.TryParse(_config["Jwt:ExpiresMinutes"], out var m) ? m : 60;
+        var expires_minutes  = int.TryParse(_config["Jwt:ExpiresMinutes"], out var m) ? m : 60;
         var fecha_expiracion = DateTime.Now.AddMinutes(expires_minutes);
 
-        // Claims que se embeben dentro del JWT
         var claims = new[]
         {
             new Claim(ClaimTypes.NameIdentifier, usuario.id.ToString()),
-            new Claim(ClaimTypes.Email, usuario.email),
-            new Claim(ClaimTypes.Name, usuario.nombre_completo),
-            new Claim(ClaimTypes.Role, usuario.rol),
-            // Claim personalizado con el nombre de usuario
-            new Claim("usuario", usuario.usuario)
+            new Claim(ClaimTypes.Email,          usuario.email),
+            new Claim(ClaimTypes.Name,           usuario.nombre_completo),
+            new Claim(ClaimTypes.Role,           usuario.rol),
+            new Claim("usuario",                 usuario.usuario)
         };
 
-        // Generar el token JWT firmado
         var (access_token, _) = _jwt.CreateToken(claims);
-        var token_hash = _jwt.ComputeSha256(access_token);
+        var token_hash        = _jwt.ComputeSha256(access_token);
 
-        // Capturar IP y User-Agent del request actual
         var ip_origen  = _http.HttpContext?.Connection?.RemoteIpAddress?.ToString();
         var user_agent = _http.HttpContext?.Request?.Headers["User-Agent"].ToString();
 
-        // Registrar la sesión en BD (columna session_token guarda el HASH)
+        // Guardar sesión con el HASH del token (nunca el token real)
         _db.sesiones.Add(new sesion_entity
         {
             usuario_id       = usuario.id,
-            session_token    = token_hash,         // Hash SHA-256 del JWT
-            metodo_login     = "password",         // Este servicio solo maneja password
+            session_token    = token_hash,
+            metodo_login     = metodo_login,
             ip_origen        = ip_origen,
             user_agent       = user_agent,
             fecha_login      = DateTime.Now,
             fecha_expiracion = fecha_expiracion,
             activa           = true
         });
-
         await _db.SaveChangesAsync();
 
         return new AuthResponse
