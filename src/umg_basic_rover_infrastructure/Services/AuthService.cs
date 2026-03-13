@@ -105,63 +105,71 @@ public class AuthService : IAuthService
         };
 
         // 5. Todo dentro de una transacción
-        await using var tx = await _db.Database.BeginTransactionAsync();
-        try
+        //    NOTA: SqlServerRetryingExecutionStrategy requiere usar CreateExecutionStrategy()
+        //    para que los reintentos automáticos funcionen con transacciones manuales.
+        var strategy  = _db.Database.CreateExecutionStrategy();
+        AuthResponse? response = null;
+
+        await strategy.ExecuteAsync(async () =>
         {
-            _db.usuarios.Add(nuevo_usuario);
-            await _db.SaveChangesAsync();
-
-            _logger.LogInformation("[REGISTER] ✅ Usuario creado en BD. ID: {id}", nuevo_usuario.id);
-
-            // 6. Crear preferencias del editor con valores por defecto
-            //    El usuario tendrá su configuración visual lista desde el primer login
-            _db.preferencias_editor.Add(new preferencias_editor_entity
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
             {
-                usuario_id               = nuevo_usuario.id,
-                tema                     = "dark",
-                tamano_fuente            = 14,
-                fuente                   = "Fira Code",
-                color_keywords           = "#4FC3F7",
-                color_commands           = "#87CEEB",
-                color_parenthesis        = "#66BB6A",
-                color_integers           = "#EF5350",
-                interlineado             = 1.5m,
-                lenguaje_destino_default = "python",
-                fecha_actualizacion      = DateTime.Now
-            });
-            await _db.SaveChangesAsync();
+                _db.usuarios.Add(nuevo_usuario);
+                await _db.SaveChangesAsync();
 
-            // 7. Emitir JWT → usuario queda logueado inmediatamente
-            var response = await EmitirTokenAsync(nuevo_usuario, "password");
+                _logger.LogInformation("[REGISTER] ✅ Usuario creado en BD. ID: {id}", nuevo_usuario.id);
 
-            await tx.CommitAsync();
-            _logger.LogInformation("[REGISTER] ✅ Transacción confirmada.");
+                // 6. Crear preferencias del editor con valores por defecto
+                //    El usuario tendrá su configuración visual lista desde el primer login
+                _db.preferencias_editor.Add(new preferencias_editor_entity
+                {
+                    usuario_id               = nuevo_usuario.id,
+                    tema                     = "dark",
+                    tamano_fuente            = 14,
+                    fuente                   = "Fira Code",
+                    color_keywords           = "#4FC3F7",
+                    color_commands           = "#87CEEB",
+                    color_parenthesis        = "#66BB6A",
+                    color_integers           = "#EF5350",
+                    interlineado             = 1.5m,
+                    lenguaje_destino_default = "python",
+                    fecha_actualizacion      = DateTime.Now
+                });
+                await _db.SaveChangesAsync();
 
-            // 8. Generar y enviar credencial PDF
-            //    Se hace FUERA de la transacción porque si el email falla
-            //    no debe revertir el registro. El usuario ya existe en BD.
-            _ = Task.Run(async () =>
+                // 7. Emitir JWT → usuario queda logueado inmediatamente
+                response = await EmitirTokenAsync(nuevo_usuario, "password");
+
+                await tx.CommitAsync();
+                _logger.LogInformation("[REGISTER] ✅ Transacción confirmada.");
+            }
+            catch (Exception ex)
             {
-                try
-                {
-                    await _credential.GenerarYEnviarAsync(nuevo_usuario.id);
-                    _logger.LogInformation("[REGISTER] ✅ Credencial PDF enviada. Usuario ID: {id}", nuevo_usuario.id);
-                }
-                catch (Exception ex)
-                {
-                    // Error en PDF/email no debe afectar el registro exitoso
-                    _logger.LogError(ex, "[REGISTER] ⚠️ Error al enviar credencial. Usuario ID: {id}", nuevo_usuario.id);
-                }
-            });
+                await tx.RollbackAsync();
+                _logger.LogError(ex, "[REGISTER] ❌ Error en transacción. Rollback ejecutado.");
+                throw;
+            }
+        });
 
-            return response;
-        }
-        catch (Exception ex)
+        // 8. Generar y enviar credencial PDF
+        //    Se hace FUERA de la transacción porque si el email falla
+        //    no debe revertir el registro. El usuario ya existe en BD.
+        _ = Task.Run(async () =>
         {
-            await tx.RollbackAsync();
-            _logger.LogError(ex, "[REGISTER] ❌ Error en transacción. Rollback ejecutado.");
-            throw;
-        }
+            try
+            {
+                await _credential.GenerarYEnviarAsync(nuevo_usuario.id);
+                _logger.LogInformation("[REGISTER] ✅ Credencial PDF enviada. Usuario ID: {id}", nuevo_usuario.id);
+            }
+            catch (Exception ex)
+            {
+                // Error en PDF/email no debe afectar el registro exitoso
+                _logger.LogError(ex, "[REGISTER] ⚠️ Error al enviar credencial. Usuario ID: {id}", nuevo_usuario.id);
+            }
+        });
+
+        return response!;
     }
 
     // ════════════════════════════════════════════════════════
