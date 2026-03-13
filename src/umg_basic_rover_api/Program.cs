@@ -72,6 +72,7 @@ builder.Services.AddAuthentication(options =>
 });
 
 builder.Services.AddAuthorization();
+app.UseHttpsRedirection();
 
 // ── 3. CORS ──────────────────────────────────────────────────
 builder.Services.AddCors(options =>
@@ -83,7 +84,8 @@ builder.Services.AddCors(options =>
                 "http://localhost:3000",
                 "http://localhost:4200",
                 "http://localhost:5173",
-                "http://localhost:8080"
+                "http://localhost:8080",
+                "https://frontend-compiladores.vercel.app"
             )
             .AllowAnyHeader()
             .AllowAnyMethod()
@@ -144,6 +146,13 @@ builder.Services.AddSwaggerGen(c =>
     {
         { jwt_scheme, Array.Empty<string>() }
     });
+});
+
+var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+
+builder.WebHost.ConfigureKestrel(serverOptions =>
+{
+    serverOptions.ListenAnyIP(int.Parse(port));
 });
 
 // ════════════════════════════════════════════════════════════
