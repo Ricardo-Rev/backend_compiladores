@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using umg_basic_rover_application.Contracts;
 using umg_basic_rover_application.DTOs;
@@ -101,7 +102,8 @@ public class AuthService : IAuthService
             telefono_confirmado  = false,
             rol                  = "conductor",
             activo               = true,
-            fecha_creacion       = DateTime.Now
+            fecha_creacion       = DateTime.Now,
+             avatar_base64        = dto.avatar_base64
         };
 
         // 5. Todo dentro de una transacción
@@ -155,19 +157,22 @@ public class AuthService : IAuthService
         // 8. Generar y enviar credencial PDF
         //    Se hace FUERA de la transacción porque si el email falla
         //    no debe revertir el registro. El usuario ya existe en BD.
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await _credential.GenerarYEnviarAsync(nuevo_usuario.id);
-                _logger.LogInformation("[REGISTER] ✅ Credencial PDF enviada. Usuario ID: {id}", nuevo_usuario.id);
-            }
-            catch (Exception ex)
-            {
-                // Error en PDF/email no debe afectar el registro exitoso
-                _logger.LogError(ex, "[REGISTER] ⚠️ Error al enviar credencial. Usuario ID: {id}", nuevo_usuario.id);
-            }
-        });
+_ = Task.Run(async () =>
+{
+    using var scope      = _http.HttpContext!.RequestServices
+                               .GetRequiredService<IServiceScopeFactory>()
+                               .CreateScope();
+    var credential_svc   = scope.ServiceProvider.GetRequiredService<ICredentialService>();
+    try
+    {
+        await credential_svc.GenerarYEnviarAsync(nuevo_usuario.id);
+        _logger.LogInformation("[REGISTER] ✅ Credencial PDF enviada. Usuario ID: {id}", nuevo_usuario.id);
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "[REGISTER] ⚠️ Error al enviar credencial. Usuario ID: {id}", nuevo_usuario.id);
+    }
+});
 
         return response!;
     }
