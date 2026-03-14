@@ -7,24 +7,21 @@ using umg_basic_rover_application.Contracts;
 using umg_basic_rover_infrastructure.Services;
 using umg_basic_rover_infrastructure.persistence.context;
 
-// ============================================================
-//  Program.cs — UNIFICADO (ambas ramas)
-//
-//  INCLUYE TODO:
-//  ── Auth (Sergio)       → IAuthService, IJwtTokenService, IRecaptchaService
-//  ── Compiler (Allan)    → ICompilerService
-//  ── Credential (Allan)  → ICredentialService
-//  ── Files (Allan)       → IFileService
-//  ── Choreo (Allan)      → IChoreoService
-//
-//  CORREGIDO:
-//  ✅ AddHttpClient("recaptcha") que faltaba en la rama de Allan
-//  ✅ Todos los servicios registrados en el DI container
-// ============================================================
-
 var builder = WebApplication.CreateBuilder(args);
 
-// ── 1. BASE DE DATOS ─────────────────────────────────────────
+// ─────────────────────────────────────────────
+// 1. CONFIGURACIÓN DE PUERTO (AZURE / CLOUD)
+// ─────────────────────────────────────────────
+var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+
+builder.WebHost.ConfigureKestrel(serverOptions =>
+{
+    serverOptions.ListenAnyIP(int.Parse(port));
+});
+
+// ─────────────────────────────────────────────
+// 2. BASE DE DATOS
+// ─────────────────────────────────────────────
 var connection_string = builder.Configuration.GetConnectionString("default_connection")
     ?? throw new InvalidOperationException("La cadena de conexión 'default_connection' no está configurada.");
 
@@ -38,6 +35,7 @@ builder.Services.AddDbContext<rover_db_context>(options =>
             errorNumbersToAdd: null);
         sql_options.CommandTimeout(30);
     });
+
     if (builder.Environment.IsDevelopment())
     {
         options.EnableSensitiveDataLogging();
@@ -45,35 +43,40 @@ builder.Services.AddDbContext<rover_db_context>(options =>
     }
 });
 
-// ── 2. AUTENTICACIÓN JWT ─────────────────────────────────────
+// ─────────────────────────────────────────────
+// 3. AUTENTICACIÓN JWT
+// ─────────────────────────────────────────────
 var jwt_key = builder.Configuration["Jwt:Key"]
     ?? throw new InvalidOperationException("Jwt:Key no está configurada.");
 
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme    = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
 })
 .AddJwtBearer(options =>
 {
     options.RequireHttpsMetadata = false;
-    options.SaveToken            = true;
+    options.SaveToken = true;
+
     options.TokenValidationParameters = new TokenValidationParameters
     {
-        ValidateIssuer           = true,
-        ValidateAudience         = true,
+        ValidateIssuer = true,
+        ValidateAudience = true,
         ValidateIssuerSigningKey = true,
-        ValidateLifetime         = true,
-        ValidIssuer              = builder.Configuration["Jwt:Issuer"],
-        ValidAudience            = builder.Configuration["Jwt:Audience"],
-        IssuerSigningKey         = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt_key)),
-        ClockSkew                = TimeSpan.Zero
+        ValidateLifetime = true,
+        ValidIssuer = builder.Configuration["Jwt:Issuer"],
+        ValidAudience = builder.Configuration["Jwt:Audience"],
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt_key)),
+        ClockSkew = TimeSpan.Zero
     };
 });
 
 builder.Services.AddAuthorization();
 
-// ── 3. CORS ──────────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// 4. CORS (FRONTEND LOCAL + VERCEL)
+// ─────────────────────────────────────────────
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("frontend_policy", policy =>
@@ -92,107 +95,132 @@ builder.Services.AddCors(options =>
     });
 });
 
-// ── 4. INYECCIÓN DE DEPENDENCIAS ─────────────────────────────
+// ─────────────────────────────────────────────
+// 5. INYECCIÓN DE DEPENDENCIAS
+// ─────────────────────────────────────────────
 builder.Services.AddHttpContextAccessor();
-
-// HTTP Client para RecaptchaService
 builder.Services.AddHttpClient("recaptcha");
 
-// ── Servicios de Auth (Sergio) ───────────────────────────────
-builder.Services.AddScoped<IAuthService,       AuthService>();
-builder.Services.AddScoped<IJwtTokenService,   JwtTokenService>();
-builder.Services.AddScoped<IRecaptchaService,  RecaptchaService>();
+// Auth
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<IRecaptchaService, RecaptchaService>();
 
-// ── Servicios del Compilador (Allan) ─────────────────────────
-builder.Services.AddScoped<ICompilerService,   CompilerService>();
+// Compiler
+builder.Services.AddScoped<ICompilerService, CompilerService>();
 
-// ── Servicios de Features (Allan) ────────────────────────────
+// Features
 builder.Services.AddScoped<ICredentialService, CredentialService>();
-builder.Services.AddScoped<IFileService,       FileService>();
-builder.Services.AddScoped<IChoreoService,     ChoreoService>();
+builder.Services.AddScoped<IFileService, FileService>();
+builder.Services.AddScoped<IChoreoService, ChoreoService>();
 
-// ── 5. CONTROLADORES ─────────────────────────────────────────
+// ─────────────────────────────────────────────
+// 6. CONTROLADORES
+// ─────────────────────────────────────────────
 builder.Services.AddControllers();
 
-// ── 6. SWAGGER ───────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// 7. SWAGGER
+// ─────────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();
+
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo
     {
-        Title       = "UMG Basic Rover 2.0 — API",
-        Version     = "v1",
+        Title = "UMG Basic Rover 2.0 — API",
+        Version = "v1",
         Description = "Compilador UMG++ | Auth con reCAPTCHA | Editor | Coreografías | Dashboard"
     });
 
     var jwt_scheme = new OpenApiSecurityScheme
     {
-        Scheme       = "bearer",
+        Scheme = "bearer",
         BearerFormat = "JWT",
-        Name         = "Authorization",
-        In           = ParameterLocation.Header,
-        Type         = SecuritySchemeType.Http,
-        Description  = "Ingresa tu token JWT (sin el prefijo 'Bearer').",
-        Reference    = new OpenApiReference
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.Http,
+        Description = "Ingresa tu token JWT (sin el prefijo 'Bearer').",
+        Reference = new OpenApiReference
         {
-            Id   = JwtBearerDefaults.AuthenticationScheme,
+            Id = JwtBearerDefaults.AuthenticationScheme,
             Type = ReferenceType.SecurityScheme
         }
     };
 
     c.AddSecurityDefinition(jwt_scheme.Reference.Id, jwt_scheme);
+
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         { jwt_scheme, Array.Empty<string>() }
     });
 });
 
-// ════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────
+// BUILD APP
+// ─────────────────────────────────────────────
 var app = builder.Build();
-// ════════════════════════════════════════════════════════════
 
-// ── 7. MIDDLEWARE PIPELINE ────────────────────────────────────
-
-// 7.1 Manejador global de excepciones
+// ─────────────────────────────────────────────
+// 8. MANEJADOR GLOBAL DE ERRORES
+// ─────────────────────────────────────────────
 app.UseExceptionHandler(error_app =>
 {
     error_app.Run(async context =>
     {
         var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
-        var error  = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
+        var error = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
+
         logger.LogError(error, "[GLOBAL-ERROR] Path={p}", context.Request.Path);
-        context.Response.StatusCode  = StatusCodes.Status500InternalServerError;
+
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
         context.Response.ContentType = "application/json";
-        await context.Response.WriteAsJsonAsync(new { error = "Error interno del servidor." });
+
+        await context.Response.WriteAsJsonAsync(new
+        {
+            error = "Error interno del servidor."
+        });
     });
 });
 
-// 7.2 Swagger UI
-app.UseSwagger();
-app.UseSwaggerUI(c =>
+// ─────────────────────────────────────────────
+// 9. SWAGGER (SOLO DESARROLLO)
+// ─────────────────────────────────────────────
+if (app.Environment.IsDevelopment())
 {
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "UMG Basic Rover 2.0 API v1");
-    c.RoutePrefix = "swagger";
-});
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "UMG Basic Rover 2.0 API v1");
+        c.RoutePrefix = "swagger";
+    });
+}
 
-// 7.3 HTTPS + CORS + Auth
+// ─────────────────────────────────────────────
+// 10. PIPELINE HTTP
+// ─────────────────────────────────────────────
 app.UseHttpsRedirection();
+
 app.UseCors("frontend_policy");
+
 app.UseAuthentication();
 
-// 7.4 Middleware de revocación de tokens
-//     Verifica que el hash del JWT exista como sesión activa en BD.
-//     Si el usuario hizo logout, su token queda revocado aunque siga vigente.
+// ─────────────────────────────────────────────
+// 11. REVOCACIÓN DE TOKENS
+// ─────────────────────────────────────────────
 app.Use(async (context, next) =>
 {
     var auth_header = context.Request.Headers.Authorization.ToString();
+
     if (!string.IsNullOrWhiteSpace(auth_header) &&
         auth_header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
     {
         var token = auth_header[7..].Trim();
-        var jwt   = context.RequestServices.GetRequiredService<IJwtTokenService>();
-        var db    = context.RequestServices.GetRequiredService<rover_db_context>();
-        var hash  = jwt.ComputeSha256(token);
+
+        var jwt = context.RequestServices.GetRequiredService<IJwtTokenService>();
+        var db = context.RequestServices.GetRequiredService<rover_db_context>();
+
+        var hash = jwt.ComputeSha256(token);
 
         var sesion_activa = await db.sesiones
             .AsNoTracking()
@@ -200,25 +228,36 @@ app.Use(async (context, next) =>
 
         if (!sesion_activa)
         {
-            context.Response.StatusCode  = StatusCodes.Status401Unauthorized;
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             context.Response.ContentType = "application/json";
-            await context.Response.WriteAsJsonAsync(new { error = "Sesión no activa o token revocado." });
+
+            await context.Response.WriteAsJsonAsync(new
+            {
+                error = "Sesión no activa o token revocado."
+            });
+
             return;
         }
     }
+
     await next();
 });
 
-// 7.5 Autorización
+// ─────────────────────────────────────────────
+// 12. AUTORIZACIÓN
+// ─────────────────────────────────────────────
 app.UseAuthorization();
+
 app.MapControllers();
 
-// ── 8. HEALTH CHECKS ─────────────────────────────────────────
+// ─────────────────────────────────────────────
+// 13. HEALTH CHECKS
+// ─────────────────────────────────────────────
 app.MapGet("/health", () => Results.Ok(new
 {
-    status    = "healthy",
+    status = "healthy",
     timestamp = DateTime.UtcNow,
-    version   = "2.0"
+    version = "2.0"
 })).AllowAnonymous();
 
 app.MapGet("/health/database", async (rover_db_context ctx) =>
@@ -226,8 +265,15 @@ app.MapGet("/health/database", async (rover_db_context ctx) =>
     try
     {
         var can_connect = await ctx.Database.CanConnectAsync();
-        if (!can_connect) return Results.Problem("No se pudo conectar a la base de datos.");
-        return Results.Ok(new { status = "database connected", timestamp = DateTime.UtcNow });
+
+        if (!can_connect)
+            return Results.Problem("No se pudo conectar a la base de datos.");
+
+        return Results.Ok(new
+        {
+            status = "database connected",
+            timestamp = DateTime.UtcNow
+        });
     }
     catch (Exception ex)
     {
