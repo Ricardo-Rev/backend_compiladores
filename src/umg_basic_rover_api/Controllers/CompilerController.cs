@@ -82,7 +82,7 @@ public class CompilerController : ControllerBase
             {
                 usuario_id   = usuario_id,
                 sesion_id    = sesion.id,
-                tipo_accion  = request.modo,
+                tipo_accion  = request.modo == "solo_compilar" ? "compilar" : request.modo,
                 descripcion  = $"Compilación iniciada. Modo: {request.modo}",
                 fecha_accion = DateTime.Now
             });

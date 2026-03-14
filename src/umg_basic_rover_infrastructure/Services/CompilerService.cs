@@ -23,7 +23,7 @@ public class CompilerService : ICompilerService
     public async Task<CompileResponse> CompileAsync(CompileRequest request, int usuario_id, int sesion_id)
     {
         var safeModo = request.modo?.Replace(Environment.NewLine, string.Empty).Replace("\n", string.Empty).Replace("\r", string.Empty);
-_logger.LogInformation("[COMPILER] Iniciando compilación. Usuario: {u} | Modo: {m}", usuario_id, safeModo);
+        _logger.LogInformation("[COMPILER] Iniciando compilación. Usuario: {u} | Modo: {m}", usuario_id, safeModo);
         var sw = Stopwatch.StartNew();
         var response = new CompileResponse();
 
@@ -99,69 +99,83 @@ _logger.LogInformation("[COMPILER] Iniciando compilación. Usuario: {u} | Modo: 
         List<Token> tokens, List<string> errores, List<InstruccionValidada> instrucciones,
         int tiempo_ms, SimulacionDto? sim = null)
     {
-        await using var tx = await _db.Database.BeginTransactionAsync();
-        try
+        // ✅ FIX: usar CreateExecutionStrategy para compatibilidad con SqlServerRetryingExecutionStrategy
+        var strategy = _db.Database.CreateExecutionStrategy();
+        int comp_id = 0;
+
+        await strategy.ExecuteAsync(async () =>
         {
-            var comp = new compilacion_entity
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
             {
-                usuario_id = uid, sesion_id = sid, archivo_id = req.archivo_id,
-                codigo_fuente = req.codigo_fuente, modo_compilacion = req.modo,
-                resultado = resultado, tiempo_compilacion_ms = tiempo_ms, fecha_compilacion = DateTime.Now
-            };
-            _db.compilaciones.Add(comp);
-            await _db.SaveChangesAsync();
-
-            _db.tokens_lexer.AddRange(tokens.Where(t => t.Tipo != TokenType.EOF).Select(t => new token_lexer_entity
-            {
-                compilacion_id = comp.id, numero_linea = t.Linea, numero_columna = t.Columna,
-                tipo_token = MapToken(t.Tipo), lexema = t.Lexema, valor = t.Valor
-            }));
-
-            if (errores.Any())
-            {
-                var tipo = resultado.Replace("error_", "");
-                _db.errores_compilacion.AddRange(errores.Select(e => new error_compilacion_entity
-                    { compilacion_id = comp.id, tipo_error = tipo, mensaje_error = e }));
-            }
-
-            if (instrucciones.Any())
-            {
-                var nombres  = instrucciones.Where(i => !i.EsCombinada).Select(i => i.Nombre).Distinct().ToList();
-                var catalogo = await _db.instrucciones_umgpp.Where(x => nombres.Contains(x.nombre_instruccion))
-                    .ToDictionaryAsync(x => x.nombre_instruccion, x => x.id);
-
-                foreach (var inst in instrucciones)
+                var comp = new compilacion_entity
                 {
-                    var cat_id = inst.EsCombinada ? (catalogo.Values.FirstOrDefault() == 0 ? 1 : catalogo.Values.First())
-                                                  : (catalogo.TryGetValue(inst.Nombre, out var cid) ? cid : 1);
-                    _db.instrucciones_ejecutadas.Add(new instruccion_ejecutada_entity
-                    {
-                        compilacion_id = comp.id, numero_orden = inst.Orden, instruccion_id = cat_id,
-                        parametro_n = inst.ParametroN, parametro_r = inst.ParametroR, parametro_l = inst.ParametroL,
-                        instruccion_raw = inst.Raw
-                    });
-                }
-            }
-
-            if (sim != null)
-            {
-                var s = new simulacion_entity
-                {
-                    compilacion_id = comp.id, usuario_id = uid,
-                    trayectoria_json = sim.trayectoria_json,
-                    duracion_estimada_seg = sim.duracion_estimada_seg,
-                    distancia_total_cm = sim.distancia_total_cm, fecha_simulacion = DateTime.Now
+                    usuario_id = uid, sesion_id = sid, archivo_id = req.archivo_id,
+                    codigo_fuente = req.codigo_fuente, modo_compilacion = req.modo,
+                    resultado = resultado, tiempo_compilacion_ms = tiempo_ms, fecha_compilacion = DateTime.Now
                 };
-                _db.simulaciones.Add(s);
+                _db.compilaciones.Add(comp);
                 await _db.SaveChangesAsync();
-                sim.simulacion_id = s.id;
-            }
 
-            await _db.SaveChangesAsync();
-            await tx.CommitAsync();
-            return comp.id;
-        }
-        catch (Exception ex) { await tx.RollbackAsync(); _logger.LogError(ex, "[COMPILER] Error al persistir"); throw; }
+                _db.tokens_lexer.AddRange(tokens.Where(t => t.Tipo != TokenType.EOF).Select(t => new token_lexer_entity
+                {
+                    compilacion_id = comp.id, numero_linea = t.Linea, numero_columna = t.Columna,
+                    tipo_token = MapToken(t.Tipo), lexema = t.Lexema, valor = t.Valor
+                }));
+
+                if (errores.Any())
+                {
+                    var tipo = resultado.Replace("error_", "");
+                    _db.errores_compilacion.AddRange(errores.Select(e => new error_compilacion_entity
+                        { compilacion_id = comp.id, tipo_error = tipo, mensaje_error = e }));
+                }
+
+                if (instrucciones.Any())
+                {
+                    var nombres  = instrucciones.Where(i => !i.EsCombinada).Select(i => i.Nombre).Distinct().ToList();
+                    var catalogo = await _db.instrucciones_umgpp.Where(x => nombres.Contains(x.nombre_instruccion))
+                        .ToDictionaryAsync(x => x.nombre_instruccion, x => x.id);
+
+                    foreach (var inst in instrucciones)
+                    {
+                        var cat_id = inst.EsCombinada ? (catalogo.Values.FirstOrDefault() == 0 ? 1 : catalogo.Values.First())
+                                                      : (catalogo.TryGetValue(inst.Nombre, out var cid) ? cid : 1);
+                        _db.instrucciones_ejecutadas.Add(new instruccion_ejecutada_entity
+                        {
+                            compilacion_id = comp.id, numero_orden = inst.Orden, instruccion_id = cat_id,
+                            parametro_n = inst.ParametroN, parametro_r = inst.ParametroR, parametro_l = inst.ParametroL,
+                            instruccion_raw = inst.Raw
+                        });
+                    }
+                }
+
+                if (sim != null)
+                {
+                    var s = new simulacion_entity
+                    {
+                        compilacion_id = comp.id, usuario_id = uid,
+                        trayectoria_json = sim.trayectoria_json,
+                        duracion_estimada_seg = sim.duracion_estimada_seg,
+                        distancia_total_cm = sim.distancia_total_cm, fecha_simulacion = DateTime.Now
+                    };
+                    _db.simulaciones.Add(s);
+                    await _db.SaveChangesAsync();
+                    sim.simulacion_id = s.id;
+                }
+
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+                comp_id = comp.id;
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                _logger.LogError(ex, "[COMPILER] Error al persistir");
+                throw;
+            }
+        });
+
+        return comp_id;
     }
 
     private SimulacionDto GenerarSimulacion(List<InstruccionValidada> instrucciones)

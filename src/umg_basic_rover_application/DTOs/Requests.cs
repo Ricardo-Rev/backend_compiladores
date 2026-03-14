@@ -77,6 +77,12 @@ public class RegisterRequest
     /// </summary>
     [Required(ErrorMessage = "El token de reCAPTCHA es obligatorio.")]
     public string recaptcha_token { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Foto de perfil en base64 (opcional). 
+    /// Se incluye en la credencial PDF si se proporciona.
+    /// </summary>
+    public string? avatar_base64 { get; set; }
 }
 
 
