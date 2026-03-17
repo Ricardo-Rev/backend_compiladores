@@ -1,3 +1,0 @@
-﻿<Project>
-  <Import Project="..\build\umg_basic_rover_api.props" />
-</Project>
