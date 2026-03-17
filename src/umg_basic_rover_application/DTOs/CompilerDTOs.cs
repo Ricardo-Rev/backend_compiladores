@@ -62,3 +62,13 @@ public class SimulacionDto
     public int? duracion_estimada_seg { get; set; }
     public decimal? distancia_total_cm { get; set; }
 }
+
+public class CompileHistoryResponse
+{
+    public int id { get; set; }
+    public string resultado { get; set; } = string.Empty;
+    public string? modo_compilacion { get; set; }
+    public int tiempo_ms { get; set; }
+    public DateTime fecha_compilacion { get; set; }
+    public int total_instrucciones { get; set; }
+}
