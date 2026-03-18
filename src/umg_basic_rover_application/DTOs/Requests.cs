@@ -92,25 +92,37 @@ public class RegisterRequest
 public class LoginRequest
 {
     /// <summary>
-    /// Correo electrónico del usuario registrado.
-    /// Ejemplo: "juan.perez@universidad.edu.gt"
+    /// Correo electrónico O nombre de usuario — uno de los dos es requerido.
     /// </summary>
-    [Required(ErrorMessage = "El correo electrónico es obligatorio.")]
-    [EmailAddress(ErrorMessage = "El formato del correo electrónico no es válido.")]
-    public string email { get; set; } = string.Empty;
+    public string? email { get; set; }
 
-    /// <summary>
-    /// Contraseña del usuario en texto plano.
-    /// El backend la compara contra el hash almacenado en BD con BCrypt.
-    /// </summary>
+    public string? usuario { get; set; }
+
     [Required(ErrorMessage = "La contraseña es obligatoria.")]
     [MinLength(8, ErrorMessage = "La contraseña debe tener al menos 8 caracteres.")]
     public string password { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Token de reCAPTCHA v2 generado en el frontend.
-    /// Debe ser válido y no haber expirado (Google lo invalida a los 2 min).
-    /// </summary>
     [Required(ErrorMessage = "El token de reCAPTCHA es obligatorio.")]
     public string recaptcha_token { get; set; } = string.Empty;
+}
+
+// ----------------------------------------------------------
+//  FacialLoginRequest: Login con reconocimiento facial
+// ----------------------------------------------------------
+public class FacialLoginRequest
+{
+    /// <summary>
+    /// Foto del usuario en base64 capturada en el momento del login.
+    /// El backend la segmenta y compara contra los rostros guardados en BD.
+    /// </summary>
+    [Required(ErrorMessage = "La imagen del rostro es obligatoria.")]
+    public string rostro_base64 { get; set; } = string.Empty;
+}
+// ----------------------------------------------------------
+//  QrLoginRequest: Login con código QR
+// ----------------------------------------------------------
+public class QrLoginRequest
+{
+    [Required(ErrorMessage = "El código QR es obligatorio.")]
+    public string codigo_qr { get; set; } = string.Empty;
 }

@@ -28,4 +28,9 @@
     <ProjectReference Include="..\umg_basic_rover_infrastructure\umg_basic_rover_infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="haarcascade_frontalface_default.xml">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 </Project>

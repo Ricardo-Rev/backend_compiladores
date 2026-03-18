@@ -97,3 +97,20 @@ public class ChoreoExecuteRequest
 
     public string? codigo_modificado { get; set; }
 }
+
+// ============================================================
+//  FaceDTOs.cs
+// ============================================================
+
+public class FaceSegmentRequest
+{
+    public string image_base64 { get; set; } = string.Empty;
+}
+
+public class FaceSegmentResponse
+{
+    public bool    success   { get; set; }
+    public string? resultado { get; set; }
+    public string? mensaje   { get; set; }
+    public string? error     { get; set; }
+}
