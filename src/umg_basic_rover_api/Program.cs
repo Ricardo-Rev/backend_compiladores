@@ -75,6 +75,10 @@ builder.Services.AddCors(options =>
 
 // ── 4. INYECCIÓN DE DEPENDENCIAS ─────────────────────────────
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<IAuthService,      AuthService>();
+builder.Services.AddHttpClient("recaptcha");
+builder.Services.AddScoped<IJwtTokenService,  JwtTokenService>();
+builder.Services.AddScoped<IRecaptchaService, RecaptchaService>();
 
 // ── Servicios existentes del Compilador ──────────────────────
 builder.Services.AddScoped<ICompilerService,    CompilerService>();
