@@ -12,7 +12,7 @@ namespace umg_basic_rover_infrastructure.Services;
 
 public class CompilerService : ICompilerService
 {
-    private readonly rover_db_context _db;
+    private readonly rover_db_context        _db;
     private readonly ILogger<CompilerService> _logger;
 
     public CompilerService(rover_db_context db, ILogger<CompilerService> logger)
@@ -22,9 +22,11 @@ public class CompilerService : ICompilerService
 
     public async Task<CompileResponse> CompileAsync(CompileRequest request, int usuario_id, int sesion_id)
     {
-        var safeModo = request.modo?.Replace(Environment.NewLine, string.Empty).Replace("\n", string.Empty).Replace("\r", string.Empty);
+        var safeModo = request.modo?.Replace(Environment.NewLine, string.Empty)
+                                    .Replace("\n", string.Empty)
+                                    .Replace("\r", string.Empty);
         _logger.LogInformation("[COMPILER] Iniciando compilación. Usuario: {u} | Modo: {m}", usuario_id, safeModo);
-        var sw = Stopwatch.StartNew();
+        var sw       = Stopwatch.StartNew();
         var response = new CompileResponse();
 
         // ── FASE 1: LÉXICO ───────────────────────────────────────
@@ -50,13 +52,14 @@ public class CompilerService : ICompilerService
             response.errores   = errores_lex.Select(e => new ErrorDto
             {
                 tipo       = "lexico",
+                codigo     = e.Codigo,
                 linea      = e.Linea,
                 columna    = e.Columna,
                 mensaje    = e.Mensaje,
                 sugerencia = e.Sugerencia
             }).ToList();
             await Persistir(request, usuario_id, sesion_id, "error_lexico", tokens,
-                errores_lex.Select(e => e.Mensaje).ToList(), new(), response.tiempo_ms);
+                errores_lex.Select(e => $"[{e.Codigo}] {e.Mensaje}").ToList(), new(), response.tiempo_ms);
             return response;
         }
 
@@ -73,13 +76,14 @@ public class CompilerService : ICompilerService
             response.errores   = errores_sin.Select(e => new ErrorDto
             {
                 tipo       = "sintactico",
+                codigo     = e.Codigo,
                 linea      = e.Linea,
                 columna    = e.Columna,
                 mensaje    = e.Mensaje,
                 sugerencia = e.Sugerencia
             }).ToList();
             await Persistir(request, usuario_id, sesion_id, "error_sintactico", tokens,
-                errores_sin.Select(e => e.Mensaje).ToList(), new(), response.tiempo_ms);
+                errores_sin.Select(e => $"[{e.Codigo}] {e.Mensaje}").ToList(), new(), response.tiempo_ms);
             return response;
         }
 
@@ -96,13 +100,14 @@ public class CompilerService : ICompilerService
             response.errores   = errores_sem.Select(e => new ErrorDto
             {
                 tipo       = "semantico",
+                codigo     = e.Codigo,
                 linea      = e.Linea,
                 columna    = e.Columna,
                 mensaje    = e.Mensaje,
                 sugerencia = e.Sugerencia
             }).ToList();
             await Persistir(request, usuario_id, sesion_id, "error_semantico", tokens,
-                errores_sem.Select(e => e.Mensaje).ToList(), new(), response.tiempo_ms);
+                errores_sem.Select(e => $"[{e.Codigo}] {e.Mensaje}").ToList(), new(), response.tiempo_ms);
             return response;
         }
 
@@ -173,15 +178,16 @@ public class CompilerService : ICompilerService
                 _db.compilaciones.Add(comp);
                 await _db.SaveChangesAsync();
 
-                _db.tokens_lexer.AddRange(tokens.Where(t => t.Tipo != TokenType.EOF).Select(t => new token_lexer_entity
-                {
-                    compilacion_id = comp.id,
-                    numero_linea   = t.Linea,
-                    numero_columna = t.Columna,
-                    tipo_token     = MapToken(t.Tipo),
-                    lexema         = t.Lexema,
-                    valor          = t.Valor
-                }));
+                _db.tokens_lexer.AddRange(
+                    tokens.Where(t => t.Tipo != TokenType.EOF).Select(t => new token_lexer_entity
+                    {
+                        compilacion_id = comp.id,
+                        numero_linea   = t.Linea,
+                        numero_columna = t.Columna,
+                        tipo_token     = MapToken(t.Tipo),
+                        lexema         = t.Lexema,
+                        valor          = t.Valor
+                    }));
 
                 if (errores.Any())
                 {
@@ -255,7 +261,7 @@ public class CompilerService : ICompilerService
     {
         var puntos = new List<object>();
         decimal dist = 0;
-        int dur = 0;
+        int     dur  = 0;
 
         foreach (var i in instrucciones.OrderBy(x => x.Orden))
         {

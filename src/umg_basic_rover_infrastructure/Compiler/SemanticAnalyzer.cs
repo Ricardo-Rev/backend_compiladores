@@ -2,8 +2,8 @@ namespace umg_basic_rover_infrastructure.Compiler;
 
 public class SemanticAnalyzer
 {
-    private readonly List<NodoInstruccion>    _instrucciones;
-    private readonly List<CompilerError>      _errores  = new();
+    private readonly List<NodoInstruccion>     _instrucciones;
+    private readonly List<CompilerError>       _errores  = new();
     private readonly List<InstruccionValidada> _validadas = new();
 
     public SemanticAnalyzer(List<NodoInstruccion> instrucciones)
@@ -31,6 +31,7 @@ public class SemanticAnalyzer
         {
             _errores.Add(new CompilerError
             {
+                Codigo     = "SEM004",
                 Linea      = nodo.Linea,
                 Columna    = 0,
                 Mensaje    = $"El parámetro '{nodo.Parametro}' de '{nodo.Nombre}' no es un entero válido.",
@@ -74,6 +75,7 @@ public class SemanticAnalyzer
             {
                 _errores.Add(new CompilerError
                 {
+                    Codigo     = "SEM004",
                     Linea      = nodo.Linea,
                     Columna    = 0,
                     Mensaje    = $"Parámetro inválido en '{parte}'.",
@@ -112,9 +114,10 @@ public class SemanticAnalyzer
                 {
                     _errores.Add(new CompilerError
                     {
+                        Codigo     = "SEM002",
                         Linea      = linea,
                         Columna    = 0,
-                        Mensaje    = $"'{nombre}' no acepta 0 como parámetro.",
+                        Mensaje    = $"[SEM002] '{nombre}' no acepta 0 como parámetro.",
                         Sugerencia = "Usá un valor positivo para avanzar o negativo para retroceder."
                     });
                     return false;
@@ -126,9 +129,10 @@ public class SemanticAnalyzer
                 {
                     _errores.Add(new CompilerError
                     {
+                        Codigo     = "SEM001",
                         Linea      = linea,
                         Columna    = 0,
-                        Mensaje    = $"'girar()' solo acepta -1, 0 o 1. Se recibió {valor}.",
+                        Mensaje    = $"[SEM001] 'girar()' solo acepta: 1 (derecha), -1 (izquierda), 0 (recto). Se recibió {valor}.",
                         Sugerencia = "girar(-1) = izquierda | girar(0) = recto | girar(1) = derecha"
                     });
                     return false;
@@ -140,9 +144,10 @@ public class SemanticAnalyzer
                 {
                     _errores.Add(new CompilerError
                     {
+                        Codigo     = "SEM003",
                         Linea      = linea,
                         Columna    = 0,
-                        Mensaje    = $"'circulo()' requiere radio entre 10 y 200 cm. Se recibió {valor}.",
+                        Mensaje    = $"[SEM003] 'circulo()' requiere radio entre 10 y 200 cm. Se recibió {valor} cm.",
                         Sugerencia = "Ejemplo válido: circulo(50);"
                     });
                     return false;
@@ -154,9 +159,10 @@ public class SemanticAnalyzer
                 {
                     _errores.Add(new CompilerError
                     {
+                        Codigo     = "SEM005",
                         Linea      = linea,
                         Columna    = 0,
-                        Mensaje    = $"'cuadrado()' requiere lado entre 10 y 200 cm. Se recibió {valor}.",
+                        Mensaje    = $"[SEM005] 'cuadrado()' requiere lado entre 10 y 200 cm. Se recibió {valor} cm.",
                         Sugerencia = "Ejemplo válido: cuadrado(50);"
                     });
                     return false;

@@ -2,9 +2,10 @@ namespace umg_basic_rover_infrastructure.Compiler;
 
 public class LexerError
 {
-    public int    Linea     { get; set; }
-    public int    Columna   { get; set; }
-    public string Mensaje   { get; set; } = string.Empty;
+    public string Codigo     { get; set; } = string.Empty;
+    public int    Linea      { get; set; }
+    public int    Columna    { get; set; }
+    public string Mensaje    { get; set; } = string.Empty;
     public string Sugerencia { get; set; } = string.Empty;
 }
 
@@ -21,10 +22,10 @@ public class Lexer
         "girar", "circulo", "cuadrado", "rotar", "caminar", "moonwalk"
     };
 
-    private readonly string _source;
-    private int _pos;
-    private int _linea;
-    private int _columna;
+    private readonly string           _source;
+    private int                       _pos;
+    private int                       _linea;
+    private int                       _columna;
     private readonly List<Token>      _tokens  = new();
     private readonly List<LexerError> _errores = new();
 
@@ -67,6 +68,7 @@ public class Lexer
 
             _errores.Add(new LexerError
             {
+                Codigo     = "LEX001",
                 Linea      = _linea,
                 Columna    = _columna,
                 Mensaje    = $"Carácter no reconocido '{c}'.",
@@ -80,18 +82,6 @@ public class Lexer
         return (_tokens, _errores);
     }
 
-    private string ObtenerSugerenciaCaracter(char c) => c switch
-    {
-        '{' or '}' => "UMG++ usa BEGIN y END en lugar de llaves {}.",
-        '[' or ']' => "UMG++ no usa corchetes. Revisá la sintaxis.",
-        '#'        => "UMG++ no admite comentarios con #.",
-        '/'        => "UMG++ no admite comentarios con //.",
-        '"' or '\'' => "UMG++ no usa cadenas de texto.",
-        '='        => "UMG++ no tiene asignaciones. Revisá la instrucción.",
-        ','        => "Las instrucciones no usan comas. Cada instrucción termina con ';'.",
-        _          => "Revisá la documentación del lenguaje UMG++."
-    };
-
     private Token LeerPalabra()
     {
         var lin = _linea; var col = _columna;
@@ -99,33 +89,24 @@ public class Lexer
         while (!EsFin() && (char.IsLetterOrDigit(Actual()) || Actual() == '_'))
         { sb.Append(Actual()); Avanzar(); }
         var lex = sb.ToString();
-        if (KEYWORDS.Contains(lex))     return new Token(TokenType.KEYWORD,     lex, lex, lin, col);
-        if (INSTRUCTIONS.Contains(lex)) return new Token(TokenType.KEYWORD,     lex, lex, lin, col);
 
-        // Sugerir instrucción similar si el identificador se parece a una instrucción
+        if (KEYWORDS.Contains(lex))     return new Token(TokenType.KEYWORD,    lex, lex, lin, col);
+        if (INSTRUCTIONS.Contains(lex)) return new Token(TokenType.KEYWORD,    lex, lex, lin, col);
+
         var similar = BuscarInstruccionSimilar(lex);
         if (similar != null)
         {
             _errores.Add(new LexerError
             {
+                Codigo     = "LEX003",
                 Linea      = lin,
                 Columna    = col,
                 Mensaje    = $"Identificador desconocido '{lex}'.",
-                Sugerencia = $"¿Quisiste escribir '{similar}'?"
+                Sugerencia = $"¿Quisiste escribir '{similar}'? (distancia de edición: {Levenshtein(lex, similar)})"
             });
         }
 
         return new Token(TokenType.IDENTIFIER, lex, lex, lin, col);
-    }
-
-    private string? BuscarInstruccionSimilar(string lex)
-    {
-        // Solo sugiere si el identificador empieza igual que una instrucción conocida
-        foreach (var inst in INSTRUCTIONS)
-            if (inst.StartsWith(lex[..Math.Min(4, lex.Length)], StringComparison.OrdinalIgnoreCase)
-                && inst != lex)
-                return inst;
-        return null;
     }
 
     private Token LeerEntero()
@@ -146,6 +127,60 @@ public class Lexer
         var v = sb.ToString();
         return new Token(TokenType.INTEGER, v, v, lin, col);
     }
+
+    public static int Levenshtein(string a, string b)
+    {
+        if (string.IsNullOrEmpty(a)) return b?.Length ?? 0;
+        if (string.IsNullOrEmpty(b)) return a.Length;
+
+        var dp = new int[a.Length + 1, b.Length + 1];
+        for (int i = 0; i <= a.Length; i++) dp[i, 0] = i;
+        for (int j = 0; j <= b.Length; j++) dp[0, j] = j;
+
+        for (int i = 1; i <= a.Length; i++)
+        for (int j = 1; j <= b.Length; j++)
+        {
+            int costo = a[i - 1] == b[j - 1] ? 0 : 1;
+            dp[i, j] = Math.Min(
+                Math.Min(dp[i - 1, j] + 1, dp[i, j - 1] + 1),
+                dp[i - 1, j - 1] + costo
+            );
+        }
+
+        return dp[a.Length, b.Length];
+    }
+
+    private string? BuscarInstruccionSimilar(string lex)
+    {
+        const int UMBRAL = 3;
+        string? mejor    = null;
+        int     min_dist = int.MaxValue;
+
+        foreach (var inst in INSTRUCTIONS)
+        {
+            var dist = Levenshtein(lex.ToLower(), inst.ToLower());
+            if (dist < min_dist && dist <= UMBRAL)
+            {
+                min_dist = dist;
+                mejor    = inst;
+            }
+        }
+
+        return mejor;
+    }
+
+    private string ObtenerSugerenciaCaracter(char c) => c switch
+    {
+        '{' or '}' => "LEX001: UMG++ usa BEGIN y END en lugar de llaves {}.",
+        '[' or ']' => "LEX001: UMG++ no usa corchetes. Revisá la sintaxis.",
+        '#'        => "LEX002: UMG++ no admite comentarios con #.",
+        '/'        => "LEX002: UMG++ no admite comentarios con //.",
+        '"' or '\''=> "LEX001: UMG++ no usa cadenas de texto.",
+        '='        => "LEX001: UMG++ no tiene asignaciones. Revisá la instrucción.",
+        ','        => "LEX001: Las instrucciones no usan comas. Cada instrucción termina con ';'.",
+        '@' or '$' => "LEX002: Los símbolos @ y $ no son válidos en UMG++.",
+        _          => "LEX001: Revisá la documentación del lenguaje UMG++."
+    };
 
     private char Actual()  => _source[_pos];
     private void Avanzar() { _pos++; _columna++; }
