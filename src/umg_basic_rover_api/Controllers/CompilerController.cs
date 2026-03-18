@@ -9,32 +9,15 @@ using umg_basic_rover_infrastructure.persistence.context;
 
 namespace umg_basic_rover_api.Controllers;
 
-// ============================================================
-//  CompilerController.cs — UMG Basic Rover 2.0
-//
-//  Endpoints del compilador UMG++:
-//
-//  POST /api/compiler/analyze  → Ejecuta el pipeline completo
-//  GET  /api/compiler/history  → Historial de compilaciones
-//
-//  Todos los endpoints requieren JWT Bearer Token.
-//  El pipeline sigue el orden:
-//  Léxico → Sintáctico → Semántico → Transpilador → Simulación
-// ============================================================
-
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Roles = "conductor,administrador")]
 [Produces("application/json")]
 public class CompilerController : ControllerBase
 {
     private readonly ICompilerService _compiler;
     private readonly rover_db_context _db;
     private readonly ILogger<CompilerController> _logger;
-
-    // Modos y lenguajes válidos
-    private static readonly string[] MODOS_VALIDOS    = { "solo_compilar", "compilar_simular", "compilar_ejecutar" };
-    private static readonly string[] LENGUAJES_VALIDOS = { "python", "csharp", "java", "cpp" };
 
     public CompilerController(ICompilerService compiler, rover_db_context db, ILogger<CompilerController> logger)
     {
@@ -56,8 +39,8 @@ public class CompilerController : ControllerBase
     ///       circulo(50);
     ///     END.
     ///
-    /// Modos disponibles   : solo_compilar | compilar_simular | compilar_ejecutar
-    /// Lenguajes destino   : python | csharp | java | cpp
+    /// Modos disponibles: solo_compilar | compilar_simular | compilar_ejecutar
+    /// Lenguajes destino: python | csharp
     /// </remarks>
     [HttpPost("analyze")]
     [ProducesResponseType(typeof(CompileResponse), StatusCodes.Status200OK)]
@@ -65,40 +48,24 @@ public class CompilerController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Analyze([FromBody] CompileRequest request)
     {
-        // Validar modelo
         if (!ModelState.IsValid)
         {
-            var errores = ModelState.Values
-                .SelectMany(v => v.Errors)
-                .Select(e => e.ErrorMessage);
-            return BadRequest(new { error = "Datos inválidos.", detalles = errores });
+            var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage);
+            return BadRequest(new { error = "Datos inválidos.", detalles = errors });
         }
 
-        // Validar modo
-        if (!MODOS_VALIDOS.Contains(request.modo))
-            return BadRequest(new
-            {
-                error     = $"Modo '{request.modo}' no válido.",
-                validos   = MODOS_VALIDOS,
-                ejemplo   = "solo_compilar"
-            });
+        var modos = new[] { "solo_compilar", "compilar_simular", "compilar_ejecutar" };
+        if (!modos.Contains(request.modo))
+            return BadRequest(new { error = $"Modo inválido. Use: {string.Join(", ", modos)}" });
 
-        // Validar lenguaje destino
-        var lenguaje = request.lenguaje_destino?.ToLower() ?? "python";
-        if (!LENGUAJES_VALIDOS.Contains(lenguaje))
-            return BadRequest(new
-            {
-                error   = $"Lenguaje '{lenguaje}' no soportado.",
-                validos = LENGUAJES_VALIDOS,
-                ejemplo = "python"
-            });
+        var lenguajes = new[] { "python", "csharp" };
+        if (!lenguajes.Contains(request.lenguaje_destino))
+            return BadRequest(new { error = $"Lenguaje inválido. Use: {string.Join(", ", lenguajes)}" });
 
-        // Obtener usuario del JWT
         var uid_str = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (!int.TryParse(uid_str, out int usuario_id))
-            return Unauthorized(new { error = "Token JWT inválido o expirado." });
+            return Unauthorized(new { error = "Token inválido." });
 
-        // Verificar sesión activa
         var sesion = await _db.sesiones
             .AsNoTracking()
             .Where(s => s.usuario_id == usuario_id && s.activa)
@@ -106,45 +73,31 @@ public class CompilerController : ControllerBase
             .FirstOrDefaultAsync();
 
         if (sesion == null)
-            return Unauthorized(new { error = "No hay sesión activa. Inicie sesión nuevamente." });
+            return Unauthorized(new { error = "No hay sesión activa." });
 
         try
         {
-            // Registrar inicio en bitácora
+            // Registrar acción en bitácora
             _db.bitacora_acciones.Add(new bitacora_accion_entity
             {
                 usuario_id   = usuario_id,
                 sesion_id    = sesion.id,
-                tipo_accion  = "compilacion_iniciada",
-                descripcion  = $"Compilación iniciada. Modo: {request.modo} | Lenguaje: {lenguaje}",
+                tipo_accion  = request.modo == "solo_compilar" ? "compilar" : request.modo,
+                descripcion  = $"Compilación iniciada. Modo: {request.modo}",
                 fecha_accion = DateTime.Now
             });
             await _db.SaveChangesAsync();
 
-            // Ejecutar pipeline del compilador
             var resultado = await _compiler.CompileAsync(request, usuario_id, sesion.id);
 
-            // Registrar resultado en bitácora
             if (!resultado.exitoso)
             {
                 _db.bitacora_acciones.Add(new bitacora_accion_entity
                 {
                     usuario_id   = usuario_id,
                     sesion_id    = sesion.id,
-                    tipo_accion  = "compilacion_error",
-                    descripcion  = $"Error: {resultado.resultado} | Total errores: {resultado.errores.Count}",
-                    fecha_accion = DateTime.Now
-                });
-                await _db.SaveChangesAsync();
-            }
-            else
-            {
-                _db.bitacora_acciones.Add(new bitacora_accion_entity
-                {
-                    usuario_id   = usuario_id,
-                    sesion_id    = sesion.id,
-                    tipo_accion  = "compilacion_exitosa",
-                    descripcion  = $"Compilación exitosa en {resultado.tiempo_ms}ms | Instrucciones: {resultado.instrucciones.Count}",
+                    tipo_accion  = "error_compilacion",
+                    descripcion  = $"Error: {resultado.resultado}. Total errores: {resultado.errores.Count}",
                     fecha_accion = DateTime.Now
                 });
                 await _db.SaveChangesAsync();
@@ -154,26 +107,21 @@ public class CompilerController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[COMPILER] Error inesperado al compilar. Usuario: {u}", usuario_id);
-            return StatusCode(500, new { error = "Error interno del compilador. Intente nuevamente." });
+            _logger.LogError(ex, "[COMPILER] Error inesperado al compilar.");
+            return StatusCode(500, new { error = "Error interno del compilador." });
         }
     }
 
     /// <summary>
     /// Retorna el historial de compilaciones del usuario autenticado.
-    /// Soporta paginación con los parámetros page y size.
     /// </summary>
     [HttpGet("history")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> History([FromQuery] int page = 1, [FromQuery] int size = 20)
     {
-        if (page < 1) page = 1;
-        if (size < 1 || size > 100) size = 20;
-
         var uid_str = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (!int.TryParse(uid_str, out int usuario_id))
-            return Unauthorized(new { error = "Token JWT inválido." });
+            return Unauthorized();
 
         var historial = await _db.compilaciones
             .AsNoTracking()
@@ -188,21 +136,12 @@ public class CompilerController : ControllerBase
                 c.resultado,
                 c.tiempo_compilacion_ms,
                 c.fecha_compilacion,
-                total_tokens       = c.tokens.Count,
-                total_errores      = c.errores.Count,
-                total_instrucciones = _db.instrucciones_ejecutadas.Count(i => i.compilacion_id == c.id)
+                total_tokens  = c.tokens.Count,
+                total_errores = c.errores.Count
             })
             .ToListAsync();
 
         var total = await _db.compilaciones.CountAsync(c => c.usuario_id == usuario_id);
-
-        return Ok(new
-        {
-            page,
-            size,
-            total,
-            total_pages = (int)Math.Ceiling((double)total / size),
-            data        = historial
-        });
+        return Ok(new { page, size, total, data = historial });
     }
 }
