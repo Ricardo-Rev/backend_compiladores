@@ -262,4 +262,40 @@ public class AuthController : ControllerBase
             return StatusCode(500, new { error = "Error al obtener perfil." });
         }
     }
+
+    // ════════════════════════════════════════════════════════
+    //  POST /api/auth/login/facial
+    // ════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Inicia sesión con reconocimiento facial.
+    /// Segmenta el rostro recibido y lo compara contra los registrados en BD.
+    /// </summary>
+    [HttpPost("login/facial")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> LoginFacial([FromBody] FacialLoginRequest dto)
+    {
+        try
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(new { error = "Datos inválidos." });
+
+            var response = await _auth.LoginFacialAsync(dto.rostro_base64);
+            _logger.LogInformation("[LOGIN-FACIAL] ✅ Login facial exitoso.");
+            return Ok(response);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogWarning("[LOGIN-FACIAL] ❌ {m}", ex.Message);
+            return Unauthorized(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[LOGIN-FACIAL] ❌ Error inesperado.");
+            return StatusCode(500, new { error = "Error interno del servidor." });
+        }
+    }
 }

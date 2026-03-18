@@ -39,4 +39,5 @@ public interface IAuthService
     /// </summary>
     /// <param name="bearer_token">Token JWT completo (con prefijo "Bearer " o sin él).</param>
     Task LogoutAsync(string bearer_token);
+    Task<AuthResponse> LoginFacialAsync(string rostro_base64);
 }

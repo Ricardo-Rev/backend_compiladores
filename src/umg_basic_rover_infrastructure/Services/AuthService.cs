@@ -157,6 +157,7 @@ public class AuthService : IAuthService
         // 8. Generar y enviar credencial PDF
         //    Se hace FUERA de la transacción porque si el email falla
         //    no debe revertir el registro. El usuario ya existe en BD.
+// 8. Generar y enviar credencial PDF
 _ = Task.Run(async () =>
 {
     using var scope      = _http.HttpContext!.RequestServices
@@ -174,6 +175,39 @@ _ = Task.Run(async () =>
     }
 });
 
+        // 9. Guardar rostro en autenticacion_facial si viene avatar
+_ = Task.Run(async () =>
+{
+    if (string.IsNullOrWhiteSpace(nuevo_usuario.avatar_base64)) return;
+    try
+    {
+        using var scope   = _http.HttpContext!.RequestServices
+                                .GetRequiredService<IServiceScopeFactory>()
+                                .CreateScope();
+        var face_svc = scope.ServiceProvider.GetRequiredService<FaceSegmentationService>();
+        var db_scope = scope.ServiceProvider.GetRequiredService<rover_db_context>();
+
+        var (ok, segmentado, _) = face_svc.SegmentFace(nuevo_usuario.avatar_base64);
+        if (ok && !string.IsNullOrWhiteSpace(segmentado))
+        {
+            db_scope.autenticacion_facial.Add(new autenticacion_facial_entity
+            {
+                usuario_id        = nuevo_usuario.id,
+                encoding_facial   = string.Empty,
+                imagen_referencia = segmentado,
+                activo            = true,
+                fecha_creacion    = DateTime.Now
+            });
+            await db_scope.SaveChangesAsync();
+            _logger.LogInformation("[REGISTER] ✅ Rostro guardado. Usuario ID: {id}", nuevo_usuario.id);
+        }
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "[REGISTER] ⚠️ Error al guardar rostro. Usuario ID: {id}", nuevo_usuario.id);
+    }
+});
+
         return response!;
     }
 
@@ -181,54 +215,62 @@ _ = Task.Run(async () =>
     //  LOGIN
     // ════════════════════════════════════════════════════════
 
-    public async Task<AuthResponse> LoginAsync(LoginRequest dto)
-    {
-        _logger.LogInformation("[LOGIN] 🔑 Intento de login: {e}", dto.email);
+public async Task<AuthResponse> LoginAsync(LoginRequest dto)
+{
+    _logger.LogInformation("[LOGIN] 🔑 Intento de login: {id}", dto.email ?? dto.usuario);
 
-        // 1. Buscar usuario por email
-        var usuario = await _db.usuarios
+    // Validar que venga al menos uno
+    if (string.IsNullOrWhiteSpace(dto.email) && string.IsNullOrWhiteSpace(dto.usuario))
+        throw new UnauthorizedAccessException("Credenciales inválidas.");
+
+    // Buscar por email o por usuario
+    user_entity? usuario;
+
+    if (!string.IsNullOrWhiteSpace(dto.email))
+    {
+        usuario = await _db.usuarios
             .AsNoTracking()
             .FirstOrDefaultAsync(u => u.email == dto.email.ToLower().Trim());
-
-        // 2. Verificar existencia y estado
-        //    Mismo mensaje para "no existe" y "contraseña incorrecta"
-        //    Evita user enumeration attacks
-        if (usuario is null || !usuario.activo)
-        {
-            _logger.LogWarning("[LOGIN] ❌ Usuario no encontrado o inactivo: {e}", dto.email);
-            throw new UnauthorizedAccessException("Credenciales inválidas.");
-        }
-
-        // 3. Verificar contraseña con BCrypt
-        var password_ok = BCrypt.Net.BCrypt.Verify(dto.password, usuario.password_hash);
-        if (!password_ok)
-        {
-            _logger.LogWarning("[LOGIN] ❌ Contraseña incorrecta. Usuario ID: {id}", usuario.id);
-            throw new UnauthorizedAccessException("Credenciales inválidas.");
-        }
-
-        // 4. Emitir JWT
-        var response = await EmitirTokenAsync(usuario, "password");
-
-        // 5. Registrar ingreso en bitacora_accesos
-        //    El Dashboard de admin necesita esta tabla para mostrar ingresos/salidas
-        var ip_origen  = _http.HttpContext?.Connection?.RemoteIpAddress?.ToString();
-        var user_agent = _http.HttpContext?.Request?.Headers["User-Agent"].ToString();
-
-        _db.bitacora_accesos.Add(new bitacora_acceso_entity
-        {
-            usuario_id    = usuario.id,
-            metodo_login  = "password",
-            ip_origen     = ip_origen,
-            user_agent    = user_agent,
-            fecha_ingreso = DateTime.Now,
-            fecha_salida  = null          // Se actualiza en LogoutAsync
-        });
-        await _db.SaveChangesAsync();
-
-        _logger.LogInformation("[LOGIN] ✅ Login exitoso. Usuario ID: {id}", usuario.id);
-        return response;
     }
+    else
+    {
+        usuario = await _db.usuarios
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.usuario == dto.usuario!.Trim());
+    }
+
+    if (usuario is null || !usuario.activo)
+    {
+        _logger.LogWarning("[LOGIN] ❌ Usuario no encontrado: {id}", dto.email ?? dto.usuario);
+        throw new UnauthorizedAccessException("Credenciales inválidas.");
+    }
+
+    var password_ok = BCrypt.Net.BCrypt.Verify(dto.password, usuario.password_hash);
+    if (!password_ok)
+    {
+        _logger.LogWarning("[LOGIN] ❌ Contraseña incorrecta. Usuario ID: {id}", usuario.id);
+        throw new UnauthorizedAccessException("Credenciales inválidas.");
+    }
+
+    var response = await EmitirTokenAsync(usuario, "password");
+
+    var ip_origen  = _http.HttpContext?.Connection?.RemoteIpAddress?.ToString();
+    var user_agent = _http.HttpContext?.Request?.Headers["User-Agent"].ToString();
+
+    _db.bitacora_accesos.Add(new bitacora_acceso_entity
+    {
+        usuario_id    = usuario.id,
+        metodo_login  = "password",
+        ip_origen     = ip_origen,
+        user_agent    = user_agent,
+        fecha_ingreso = DateTime.Now,
+        fecha_salida  = null
+    });
+    await _db.SaveChangesAsync();
+
+    _logger.LogInformation("[LOGIN] ✅ Login exitoso. Usuario ID: {id}", usuario.id);
+    return response;
+}
 
     // ════════════════════════════════════════════════════════
     //  LOGOUT
@@ -333,4 +375,52 @@ _ = Task.Run(async () =>
             }
         };
     }
+    public async Task<AuthResponse> LoginFacialAsync(string rostro_base64)
+{
+    _logger.LogInformation("[LOGIN-FACIAL] 🔍 Intento de login facial.");
+
+    var face_svc = _http.HttpContext!.RequestServices
+                        .GetRequiredService<FaceSegmentationService>();
+
+    var (ok, segmentado, msg) = face_svc.SegmentFace(rostro_base64);
+    if (!ok || string.IsNullOrWhiteSpace(segmentado))
+        throw new UnauthorizedAccessException(msg ?? "No se pudo procesar el rostro.");
+
+    var candidatos = await _db.autenticacion_facial
+        .AsNoTracking()
+        .Include(f => f.usuario)
+        .Where(f => f.activo && f.usuario.activo && f.imagen_referencia != null)
+        .ToListAsync();
+
+    if (!candidatos.Any())
+        throw new UnauthorizedAccessException("No hay rostros registrados en el sistema.");
+
+    foreach (var candidato in candidatos)
+    {
+        var (match, _) = face_svc.CompararRostros(segmentado, candidato.imagen_referencia!);
+        if (!match) continue;
+
+        var usuario  = candidato.usuario;
+        var response = await EmitirTokenAsync(usuario, "facial");
+
+        var ip_origen  = _http.HttpContext?.Connection?.RemoteIpAddress?.ToString();
+        var user_agent = _http.HttpContext?.Request?.Headers["User-Agent"].ToString();
+
+        _db.bitacora_accesos.Add(new bitacora_acceso_entity
+        {
+            usuario_id    = usuario.id,
+            metodo_login  = "facial",
+            ip_origen     = ip_origen,
+            user_agent    = user_agent,
+            fecha_ingreso = DateTime.Now,
+            fecha_salida  = null
+        });
+        await _db.SaveChangesAsync();
+
+        _logger.LogInformation("[LOGIN-FACIAL] ✅ Coincidencia. Usuario ID: {id}", usuario.id);
+        return response;
+    }
+
+    throw new UnauthorizedAccessException("No hay coincidencia con ningún usuario registrado.");
+}
 }

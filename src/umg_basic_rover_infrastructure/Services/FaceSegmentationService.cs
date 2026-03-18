@@ -98,4 +98,53 @@ public class FaceSegmentationService
         _logger.LogError("[FACE-SEG] ❌ No se encontró {cascade}.", CASCADE_NAME);
         return null;
     }
+
+    public (bool Match, string? Message) CompararRostros(string base64A, string base64B)
+    {
+        try
+        {
+            var bytesA = Convert.FromBase64String(base64A.Contains(',') ? base64A.Split(',')[1] : base64A);
+            var bytesB = Convert.FromBase64String(base64B.Contains(',') ? base64B.Split(',')[1] : base64B);
+
+            using var matA = Mat.FromImageData(bytesA, ImreadModes.Grayscale);
+            using var matB = Mat.FromImageData(bytesB, ImreadModes.Grayscale);
+
+            if (matA.Empty() || matB.Empty())
+                return (false, "No se pudo decodificar una de las imágenes.");
+
+            // Redimensionar ambas al mismo tamaño para comparar
+            using var resA = new Mat();
+            using var resB = new Mat();
+            Cv2.Resize(matA, resA, new OpenCvSharp.Size(100, 100));
+            Cv2.Resize(matB, resB, new OpenCvSharp.Size(100, 100));
+
+            // Calcular histogramas
+            using var histA = new Mat();
+            using var histB = new Mat();
+
+            int[] channels = { 0 };
+            int[] histSize = { 256 };
+            Rangef[] ranges = { new Rangef(0, 256) };
+
+            Cv2.CalcHist(new[] { resA }, channels, null, histA, 1, histSize, ranges);
+            Cv2.CalcHist(new[] { resB }, channels, null, histB, 1, histSize, ranges);
+
+            Cv2.Normalize(histA, histA, 0, 1, NormTypes.MinMax);
+            Cv2.Normalize(histB, histB, 0, 1, NormTypes.MinMax);
+
+            // Comparación por correlación — resultado entre -1 y 1, más cercano a 1 = más similar
+            var similitud = Cv2.CompareHist(histA, histB, HistCompMethods.Correl);
+
+            _logger.LogInformation("[FACE-SEG] Similitud entre rostros: {s:F4}", similitud);
+
+            // Umbral de 0.85 — ajustable según pruebas
+            var coincide = similitud >= 0.85;
+            return (coincide, coincide ? null : $"Rostros no coinciden (similitud: {similitud:F2})");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[FACE-SEG] Error al comparar rostros.");
+            return (false, $"Error al comparar: {ex.Message}");
+        }
+    }
 }
