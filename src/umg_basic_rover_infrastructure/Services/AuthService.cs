@@ -215,9 +215,16 @@ _ = Task.Run(async () =>
     //  LOGIN
     // ════════════════════════════════════════════════════════
 
+private static string SanitizeForLog(string? value)
+{
+    return (value ?? string.Empty)
+        .Replace("\r", string.Empty)
+        .Replace("\n", string.Empty)
+        .Trim();
+}
 public async Task<AuthResponse> LoginAsync(LoginRequest dto)
 {
-    _logger.LogInformation("[LOGIN] 🔑 Intento de login: {id}", dto.email ?? dto.usuario);
+    _logger.LogInformation("[LOGIN] 🔑 Intento de login: {id}", SanitizeForLog(dto.email ?? dto.usuario));
 
     // Validar que venga al menos uno
     if (string.IsNullOrWhiteSpace(dto.email) && string.IsNullOrWhiteSpace(dto.usuario))
@@ -241,7 +248,7 @@ public async Task<AuthResponse> LoginAsync(LoginRequest dto)
 
     if (usuario is null || !usuario.activo)
     {
-        _logger.LogWarning("[LOGIN] ❌ Usuario no encontrado: {id}", dto.email ?? dto.usuario);
+        _logger.LogWarning("[LOGIN] ❌ Usuario no encontrado: {id}", SanitizeForLog(dto.email ?? dto.usuario));
         throw new UnauthorizedAccessException("Credenciales inválidas.");
     }
 
@@ -434,7 +441,7 @@ public async Task<AuthResponse> LoginQrAsync(string codigo_qr)
 
     if (qr is null || !qr.usuario.activo)
     {
-        _logger.LogWarning("[LOGIN-QR] ❌ QR no encontrado o inactivo: {q}", codigo_qr);
+        _logger.LogWarning("[LOGIN-QR] ❌ QR no encontrado o inactivo: {q}", SanitizeForLog(codigo_qr));
         throw new UnauthorizedAccessException("Código QR inválido o expirado.");
     }
 
