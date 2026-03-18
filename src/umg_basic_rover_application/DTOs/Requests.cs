@@ -118,3 +118,11 @@ public class FacialLoginRequest
     [Required(ErrorMessage = "La imagen del rostro es obligatoria.")]
     public string rostro_base64 { get; set; } = string.Empty;
 }
+// ----------------------------------------------------------
+//  QrLoginRequest: Login con código QR
+// ----------------------------------------------------------
+public class QrLoginRequest
+{
+    [Required(ErrorMessage = "El código QR es obligatorio.")]
+    public string codigo_qr { get; set; } = string.Empty;
+}

@@ -423,4 +423,38 @@ public async Task<AuthResponse> LoginAsync(LoginRequest dto)
 
     throw new UnauthorizedAccessException("No hay coincidencia con ningún usuario registrado.");
 }
+public async Task<AuthResponse> LoginQrAsync(string codigo_qr)
+{
+    _logger.LogInformation("[LOGIN-QR] 🔍 Intento de login por QR.");
+
+    var qr = await _db.codigos_qr
+        .AsNoTracking()
+        .Include(q => q.usuario)
+        .FirstOrDefaultAsync(q => q.codigo_qr == codigo_qr.Trim() && q.activo);
+
+    if (qr is null || !qr.usuario.activo)
+    {
+        _logger.LogWarning("[LOGIN-QR] ❌ QR no encontrado o inactivo: {q}", codigo_qr);
+        throw new UnauthorizedAccessException("Código QR inválido o expirado.");
+    }
+
+    var response = await EmitirTokenAsync(qr.usuario, "qr");
+
+    var ip_origen  = _http.HttpContext?.Connection?.RemoteIpAddress?.ToString();
+    var user_agent = _http.HttpContext?.Request?.Headers["User-Agent"].ToString();
+
+    _db.bitacora_accesos.Add(new bitacora_acceso_entity
+    {
+        usuario_id    = qr.usuario.id,
+        metodo_login  = "qr",
+        ip_origen     = ip_origen,
+        user_agent    = user_agent,
+        fecha_ingreso = DateTime.Now,
+        fecha_salida  = null
+    });
+    await _db.SaveChangesAsync();
+
+    _logger.LogInformation("[LOGIN-QR] ✅ Login exitoso. Usuario ID: {id}", qr.usuario.id);
+    return response;
+}
 }

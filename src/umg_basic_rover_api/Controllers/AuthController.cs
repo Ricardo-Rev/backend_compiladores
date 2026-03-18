@@ -298,4 +298,40 @@ public class AuthController : ControllerBase
             return StatusCode(500, new { error = "Error interno del servidor." });
         }
     }
+
+    // ════════════════════════════════════════════════════════
+    //  POST /api/auth/login/qr
+    // ════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Inicia sesión escaneando el código QR de la credencial.
+    /// Busca el código en BD y emite JWT si es válido y activo.
+    /// </summary>
+    [HttpPost("login/qr")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> LoginQr([FromBody] QrLoginRequest dto)
+    {
+        try
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(new { error = "Datos inválidos." });
+
+            var response = await _auth.LoginQrAsync(dto.codigo_qr);
+            _logger.LogInformation("[LOGIN-QR] ✅ Login QR exitoso.");
+            return Ok(response);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogWarning("[LOGIN-QR] ❌ {m}", ex.Message);
+            return Unauthorized(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[LOGIN-QR] ❌ Error inesperado.");
+            return StatusCode(500, new { error = "Error interno del servidor." });
+        }
+    }
 }
