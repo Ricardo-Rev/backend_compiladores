@@ -264,3 +264,5 @@ C:\backend_compiladores\src\umg_basic_rover_api\obj\Debug\net8.0\refint\umg_basi
 C:\backend_compiladores\src\umg_basic_rover_api\obj\Debug\net8.0\umg_basic_rover_api.pdb
 C:\backend_compiladores\src\umg_basic_rover_api\obj\Debug\net8.0\umg_basic_rover_api.genruntimeconfig.cache
 C:\backend_compiladores\src\umg_basic_rover_api\obj\Debug\net8.0\ref\umg_basic_rover_api.dll
+C:\backend_compiladores\src\umg_basic_rover_api\bin\Debug\net8.0\appsettings.Development.json
+C:\backend_compiladores\src\umg_basic_rover_api\bin\Debug\net8.0\BCrypt.Net-Next.dll
