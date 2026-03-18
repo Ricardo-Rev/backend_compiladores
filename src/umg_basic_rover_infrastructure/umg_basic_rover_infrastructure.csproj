@@ -1,4 +1,38 @@
+<<<<<<< HEAD
 ﻿<Project Sdk="Microsoft.NET.Sdk">
+=======
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- ✅ Corregido: net9.0 → net8.0 (el proyecto entero es .NET 8) -->
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ── Auth (de Sergio) ───────────────────────────────── -->
+    <PackageReference Include="BCrypt.Net-Next" Version="4.1.0" />
+    <PackageReference Include="itext7.bouncy-castle-adapter" Version="8.0.5" />
+    <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.2.0" />
+
+    <!-- ── EF Core + SQL Server ───────────────────────────── -->
+    <!-- ✅ Corregido: 9.0.3 → 8.0.0 -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.0" />
+
+    <!-- ── HTTP Client (para RecaptchaService) ────────────── -->
+    <!-- ✅ Corregido: 9.0.3 → 8.0.0 -->
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.0" />
+
+    <!-- ── JWT (necesario en infrastructure para JwtTokenService) -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
+
+    <!-- ── Credencial PDF (CredentialService) ─────────────── -->
+    <PackageReference Include="itext7" Version="8.0.5" />
+    <PackageReference Include="QRCoder" Version="1.6.0" />
+    <PackageReference Include="Twilio" Version="7.3.1" />
+  </ItemGroup>
+>>>>>>> main
 
   <ItemGroup>
     <ProjectReference Include="..\umg_basic_rover_application\umg_basic_rover_application.csproj" />
