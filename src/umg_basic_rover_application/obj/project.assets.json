@@ -1,0 +1,101 @@
+{
+  "version": 3,
+  "targets": {
+    "net8.0": {
+      "umg_basic_rover_domain/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "compile": {
+          "bin/placeholder/umg_basic_rover_domain.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/umg_basic_rover_domain.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "umg_basic_rover_domain/1.0.0": {
+      "type": "project",
+      "path": "../umg_basic_rover_domain/umg_basic_rover_domain.csproj",
+      "msbuildProject": "../umg_basic_rover_domain/umg_basic_rover_domain.csproj"
+    }
+  },
+  "projectFileDependencyGroups": {
+    "net8.0": [
+      "umg_basic_rover_domain >= 1.0.0"
+    ]
+  },
+  "packageFolders": {
+    "C:\\Users\\DELL\\.nuget\\packages\\": {},
+    "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
+  },
+  "project": {
+    "version": "1.0.0",
+    "restore": {
+      "projectUniqueName": "C:\\backend_compiladores\\src\\umg_basic_rover_application\\umg_basic_rover_application.csproj",
+      "projectName": "umg_basic_rover_application",
+      "projectPath": "C:\\backend_compiladores\\src\\umg_basic_rover_application\\umg_basic_rover_application.csproj",
+      "packagesPath": "C:\\Users\\DELL\\.nuget\\packages\\",
+      "outputPath": "C:\\backend_compiladores\\src\\umg_basic_rover_application\\obj\\",
+      "projectStyle": "PackageReference",
+      "fallbackFolders": [
+        "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
+      ],
+      "configFilePaths": [
+        "C:\\Users\\DELL\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
+        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+      ],
+      "originalTargetFrameworks": [
+        "net8.0"
+      ],
+      "sources": {
+        "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+        "https://api.nuget.org/v3/index.json": {}
+      },
+      "frameworks": {
+        "net8.0": {
+          "targetAlias": "net8.0",
+          "projectReferences": {
+            "C:\\backend_compiladores\\src\\umg_basic_rover_domain\\umg_basic_rover_domain.csproj": {
+              "projectPath": "C:\\backend_compiladores\\src\\umg_basic_rover_domain\\umg_basic_rover_domain.csproj"
+            }
+          }
+        }
+      },
+      "warningProperties": {
+        "warnAsError": [
+          "NU1605"
+        ]
+      },
+      "restoreAuditProperties": {
+        "enableAudit": "true",
+        "auditLevel": "low",
+        "auditMode": "direct"
+      }
+    },
+    "frameworks": {
+      "net8.0": {
+        "targetAlias": "net8.0",
+        "imports": [
+          "net461",
+          "net462",
+          "net47",
+          "net471",
+          "net472",
+          "net48",
+          "net481"
+        ],
+        "assetTargetFallback": true,
+        "warn": true,
+        "frameworkReferences": {
+          "Microsoft.NETCore.App": {
+            "privateAssets": "all"
+          }
+        },
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.419/PortableRuntimeIdentifierGraph.json"
+      }
+    }
+  }
+}

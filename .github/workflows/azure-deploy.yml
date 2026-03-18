@@ -1,0 +1,33 @@
+name: Deploy UMG Basic Rover to Azure
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore src/umg_basic_rover_api/umg_basic_rover_api.csproj
+
+      - name: Build
+        run: dotnet build src/umg_basic_rover_api/umg_basic_rover_api.csproj -c Release --no-restore
+
+      - name: Publish
+        run: dotnet publish src/umg_basic_rover_api/umg_basic_rover_api.csproj -c Release -o ./publish
+
+      - name: Deploy to Azure
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'umg-basic-rover'
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ./publish
