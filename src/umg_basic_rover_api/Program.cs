@@ -115,6 +115,9 @@ builder.Services.AddScoped<ICredentialService, CredentialService>();
 builder.Services.AddScoped<IFileService, FileService>();
 builder.Services.AddScoped<IChoreoService, ChoreoService>();
 
+// Servicio de segmentación facial
+builder.Services.AddSingleton<FaceSegmentationService>();
+
 // ─────────────────────────────────────────────
 // 6. CONTROLADORES
 // ─────────────────────────────────────────────
@@ -187,15 +190,12 @@ app.UseExceptionHandler(error_app =>
 // ─────────────────────────────────────────────
 // 9. SWAGGER (SOLO DESARROLLO)
 // ─────────────────────────────────────────────
-if (app.Environment.IsDevelopment())
+app.UseSwagger();
+app.UseSwaggerUI(c =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "UMG Basic Rover 2.0 API v1");
-        c.RoutePrefix = "swagger";
-    });
-}
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "UMG Basic Rover 2.0 API v1");
+    c.RoutePrefix = "swagger";
+});
 
 // ─────────────────────────────────────────────
 // 10. PIPELINE HTTP
