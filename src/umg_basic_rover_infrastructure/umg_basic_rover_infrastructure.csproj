@@ -28,7 +28,7 @@
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
 
     <!-- ── Credencial PDF (CredentialService) ─────────────── -->
-    <PackageReference Include="itext7" Version="8.0.5" />
+    <PackageReference Include="itext7" Version="9.5.0" />
     <PackageReference Include="QRCoder" Version="1.6.0" />
     <PackageReference Include="Svg.Skia" Version="3.6.0" />
     <PackageReference Include="Twilio" Version="7.3.1" />
