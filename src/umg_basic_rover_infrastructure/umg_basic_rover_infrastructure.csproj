@@ -10,6 +10,7 @@
   <ItemGroup>
     <PackageReference Include="SkiaSharp" Version="2.88.7" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="2.88.7" />
+    <PackageReference Include="SendGrid" Version="9.29.3" />
     <!-- ── Auth (de Sergio) ───────────────────────────────── -->
     <PackageReference Include="BCrypt.Net-Next" Version="4.1.0" />
     <PackageReference Include="itext7.bouncy-castle-adapter" Version="8.0.5" />

@@ -375,71 +375,60 @@ public class CredentialService : ICredentialService
     }
 
     // ── EMAIL (SMTP) ─────────────────────────────────────────
-
     private async Task<bool> EnviarEmailAsync(user_entity usuario, byte[] pdf_bytes, string firma, int credencial_id)
     {
         try
         {
-            var smtp_host = _config["Smtp:Host"] ?? throw new InvalidOperationException("Smtp:Host no configurado.");
-            var smtp_port = int.Parse(_config["Smtp:Port"] ?? "587");
-            var smtp_user = _config["Smtp:User"] ?? throw new InvalidOperationException("Smtp:User no configurado.");
-            var smtp_pass = _config["Smtp:Password"] ?? throw new InvalidOperationException("Smtp:Password no configurado.");
-            var smtp_from = _config["Smtp:From"] ?? smtp_user;
-            var from_name = _config["Smtp:FromName"] ?? "UMG Basic Rover 2.0";
+            var api_key   = _config["SendGrid:ApiKey"]   ?? throw new InvalidOperationException("SendGrid:ApiKey no configurado.");
+            var from_email = _config["SendGrid:From"]    ?? throw new InvalidOperationException("SendGrid:From no configurado.");
+            var from_name  = _config["SendGrid:FromName"] ?? "UMG Basic Rover 2.0";
 
-            using var client = new System.Net.Mail.SmtpClient(smtp_host, smtp_port)
-            {
-                EnableSsl   = true,
-                Credentials = new System.Net.NetworkCredential(smtp_user, smtp_pass)
-            };
+            var client  = new SendGrid.SendGridClient(api_key);
+            var from    = new SendGrid.Helpers.Mail.EmailAddress(from_email, from_name);
+            var to      = new SendGrid.Helpers.Mail.EmailAddress(usuario.email, usuario.nombre_completo);
+            var subject = $"🏁 Tu Credencial de Acceso — UMG Basic Rover 2.0 | {usuario.usuario}";
 
-            using var msg = new System.Net.Mail.MailMessage();
-            msg.From    = new System.Net.Mail.MailAddress(smtp_from, from_name);
-            msg.To.Add(new System.Net.Mail.MailAddress(usuario.email, usuario.nombre_completo));
-            msg.Subject = $"🏁 Tu Credencial de Acceso — UMG Basic Rover 2.0 | {usuario.usuario}";
-            msg.IsBodyHtml = true;
-            msg.Body = $@"
-<!DOCTYPE html>
-<html>
-<head><meta charset='UTF-8'></head>
-<body style='font-family: Arial, sans-serif; background:#f5f5f5; margin:0; padding:20px;'>
-  <div style='max-width:600px; margin:auto; background:white; border-radius:8px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.1);'>
-    <div style='background:#003087; padding:24px; text-align:center;'>
-      <h1 style='color:white; margin:0; font-size:22px;'>🏁 UMG Basic Rover 2.0</h1>
-      <p style='color:#FFD700; margin:6px 0 0;'>Universidad Mariano Gálvez de Guatemala</p>
+            var html_body = $@"
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset='UTF-8'></head>
+    <body style='font-family: Arial, sans-serif; background:#f5f5f5; margin:0; padding:20px;'>
+    <div style='max-width:600px; margin:auto; background:white; border-radius:8px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.1);'>
+        <div style='background:#003087; padding:24px; text-align:center;'>
+        <h1 style='color:white; margin:0; font-size:22px;'>🏁 UMG Basic Rover 2.0</h1>
+        <p style='color:#FFD700; margin:6px 0 0;'>Universidad Mariano Gálvez de Guatemala</p>
+        </div>
+        <div style='padding:28px;'>
+        <h2 style='color:#003087;'>¡Bienvenido, <strong>{usuario.usuario}</strong>!</h2>
+        <p style='color:#333; font-size:15px;'>Tu registro en la plataforma <strong>UMG Basic Rover 2.0</strong> fue exitoso.</p>
+        <p style='color:#333; font-size:15px;'>Adjunto encontrarás tu <strong>credencial de acceso en formato PDF</strong>, firmada electrónicamente con tu información y código QR de acceso.</p>
+        <div style='background:#f0f4ff; border-left:4px solid #003087; padding:14px; margin:20px 0; border-radius:4px;'>
+            <p style='margin:0; font-size:13px; color:#555;'><strong>Firma Electrónica:</strong><br/>
+            <code style='font-size:11px; word-break:break-all;'>{firma[..32]}...</code></p>
+        </div>
+        <p style='color:#555; font-size:13px;'>Usa tu nickname <strong>{usuario.usuario}</strong> y contraseña para ingresar a la plataforma.</p>
+        </div>
+        <div style='background:#003087; padding:16px; text-align:center;'>
+        <p style='color:#aaa; font-size:12px; margin:0;'>UMG Ingeniería en Sistemas — Compiladores 2026</p>
+        </div>
     </div>
-    <div style='padding:28px;'>
-      <h2 style='color:#003087;'>¡Bienvenido, <strong>{usuario.usuario}</strong>!</h2>
-      <p style='color:#333; font-size:15px;'>Tu registro en la plataforma <strong>UMG Basic Rover 2.0</strong> fue exitoso.</p>
-      <p style='color:#333; font-size:15px;'>Adjunto encontrarás tu <strong>credencial de acceso en formato PDF</strong>, firmada electrónicamente con tu información y código QR de acceso.</p>
-      <div style='background:#f0f4ff; border-left:4px solid #003087; padding:14px; margin:20px 0; border-radius:4px;'>
-        <p style='margin:0; font-size:13px; color:#555;'><strong>Firma Electrónica:</strong><br/>
-        <code style='font-size:11px; word-break:break-all;'>{firma[..32]}...</code></p>
-      </div>
-      <p style='color:#555; font-size:13px;'>Usa tu nickname <strong>{usuario.usuario}</strong> y contraseña para ingresar a la plataforma.</p>
-    </div>
-    <div style='background:#003087; padding:16px; text-align:center;'>
-      <p style='color:#aaa; font-size:12px; margin:0;'>UMG Ingeniería en Sistemas — Compiladores 2026</p>
-    </div>
-  </div>
-</body>
-</html>";
+    </body>
+    </html>";
+
+            var msg = SendGrid.Helpers.Mail.MailHelper.CreateSingleEmail(from, to, subject, "", html_body);
 
             // Adjuntar PDF
-            var attachment = new System.Net.Mail.Attachment(
-                new MemoryStream(pdf_bytes),
-                $"credencial_{usuario.usuario}.pdf",
-                "application/pdf");
-            msg.Attachments.Add(attachment);
+            var pdf_b64 = Convert.ToBase64String(pdf_bytes);
+            msg.AddAttachment($"credencial_{usuario.usuario}.pdf", pdf_b64, "application/pdf");
 
-            await client.SendMailAsync(msg);
+            var response = await client.SendEmailAsync(msg);
+            var enviado  = (int)response.StatusCode >= 200 && (int)response.StatusCode < 300;
 
-            // Registrar en historial
             await RegistrarNotificacionAsync(usuario.id, "credencial_pdf", "email",
-                $"Credencial PDF — {usuario.usuario}", "enviado", credencial_id);
+                $"Credencial PDF — {usuario.usuario}", enviado ? "enviado" : "error", credencial_id);
 
-            _logger.LogInformation("[CREDENTIAL] ✅ Email enviado a: {email}", usuario.email);
-            return true;
+            _logger.LogInformation("[CREDENTIAL] ✅ Email SendGrid enviado a: {email} | Status: {s}", usuario.email, response.StatusCode);
+            return enviado;
         }
         catch (Exception ex)
         {
@@ -449,7 +438,6 @@ public class CredentialService : ICredentialService
             return false;
         }
     }
-
     // ── WHATSAPP (TWILIO) ────────────────────────────────────
 
     private async Task<bool> EnviarWhatsAppAsync(user_entity usuario, byte[] pdf_bytes, int credencial_id)
