@@ -11,7 +11,7 @@ namespace umg_basic_rover_api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Roles = "conductor,administrador")]
 [Produces("application/json")]
 public class CompilerController : ControllerBase
 {
