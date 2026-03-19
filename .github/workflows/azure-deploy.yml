@@ -8,26 +8,27 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup .NET 8
-        uses: actions/setup-dotnet@v4
+      - name: Login to Azure Container Registry
+        uses: docker/login-action@v3
         with:
-          dotnet-version: '8.0.x'
+          registry: umgbasicrover.azurecr.io
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
 
-      - name: Restore
-        run: dotnet restore src/umg_basic_rover_api/umg_basic_rover_api.csproj
+      - name: Build and Push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: umgbasicrover.azurecr.io/umg-basic-rover:latest
 
-      - name: Build
-        run: dotnet build src/umg_basic_rover_api/umg_basic_rover_api.csproj -c Release --no-restore
-
-      - name: Publish
-        run: dotnet publish src/umg_basic_rover_api/umg_basic_rover_api.csproj -c Release -o ./publish
-
-      - name: Deploy to Azure
+      - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'umg-basic-rover'
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: ./publish
+          images: 'umgbasicrover.azurecr.io/umg-basic-rover:latest'
