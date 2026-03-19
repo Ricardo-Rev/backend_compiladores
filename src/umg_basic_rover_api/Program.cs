@@ -124,7 +124,11 @@ builder.Services.AddScoped<IFileService, FileService>();
 builder.Services.AddScoped<IChoreoService, ChoreoService>();
 
 // Servicio de segmentación facial
-builder.Services.AddSingleton<FaceSegmentationService>();
+builder.Services.AddSingleton<FaceSegmentationService>(sp =>
+    new FaceSegmentationService(
+        sp.GetRequiredService<ILogger<FaceSegmentationService>>(),
+        sp.GetRequiredService<IConfiguration>()
+    ));
 
 // ─────────────────────────────────────────────
 // 6. CONTROLADORES
