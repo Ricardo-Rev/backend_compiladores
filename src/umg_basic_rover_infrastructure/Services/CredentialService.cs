@@ -57,12 +57,17 @@ public class CredentialService : ICredentialService
 
         _logger.LogInformation("[CREDENTIAL] Generando credencial para usuario: {u}", usuario.usuario);
 
+        var foto_facial = await _db.autenticacion_facial
+            .AsNoTracking()
+            .FirstOrDefaultAsync(f => f.usuario_id == usuario_id && f.activo);
+        var imagen_referencia = foto_facial?.imagen_referencia;
+
         // 1. Generar QR con el id cifrado
         var qr_data   = CifrarIdUsuario(usuario_id);
         var qr_bytes  = GenerarQrBytes(qr_data);
 
         // 2. Generar PDF
-        var pdf_bytes = GenerarPdf(usuario, qr_bytes);
+        var pdf_bytes = GenerarPdf(usuario, qr_bytes, imagen_referencia);
         var pdf_b64   = Convert.ToBase64String(pdf_bytes);
 
         // 3. Firma electrónica (hash SHA-256 del PDF = firma básica avanzada)
@@ -144,7 +149,7 @@ public class CredentialService : ICredentialService
 
     // ── GENERACIÓN DEL PDF ───────────────────────────────────
 
-    private byte[] GenerarPdf(user_entity usuario, byte[] qr_bytes)
+    private byte[] GenerarPdf(user_entity usuario, byte[] qr_bytes, string? foto_facial_base64 = null)
     {
         using var ms     = new MemoryStream();
         using var writer = new PdfWriter(ms);
@@ -221,21 +226,23 @@ public class CredentialService : ICredentialService
         var qr_section = new Table(new float[] { 1, 1 }).UseAllAvailableWidth();
         qr_section.SetMarginBottom(20);
 
-        // QR Code
+        // Columna 1 — QR
         var qr_image = ImageDataFactory.Create(qr_bytes);
         var qr_cell  = new Cell()
             .SetBorder(iText.Layout.Borders.Border.NO_BORDER)
             .SetPadding(10)
             .SetTextAlignment(TextAlignment.CENTER)
-            .Add(new Paragraph("Código QR de Acceso").SetFont(font_bold).SetFontSize(11).SetFontColor(color_azul_umg))
-            .Add(new Image(qr_image).SetWidth(130).SetHeight(130));
+            .Add(new Paragraph("Código QR de Acceso")
+                .SetFont(font_bold).SetFontSize(11).SetFontColor(color_azul_umg))
+            .Add(new Image(qr_image).SetWidth(110).SetHeight(110));
         qr_section.AddCell(qr_cell);
 
-        // Avatar si existe
+        // Columna 2 — Avatar dibujito (más pequeño)
         var avatar_cell = new Cell()
             .SetBorder(iText.Layout.Borders.Border.NO_BORDER)
             .SetPadding(10)
-            .SetVerticalAlignment(VerticalAlignment.MIDDLE);
+            .SetVerticalAlignment(VerticalAlignment.MIDDLE)
+            .SetTextAlignment(TextAlignment.CENTER);
 
         if (!string.IsNullOrEmpty(usuario.avatar_base64))
         {
@@ -247,25 +254,62 @@ public class CredentialService : ICredentialService
                         : usuario.avatar_base64);
                 var avatar_img = ImageDataFactory.Create(avatar_bytes);
                 avatar_cell
-                    .Add(new Paragraph("Avatar").SetFont(font_bold).SetFontSize(11).SetFontColor(color_azul_umg))
-                    .Add(new Image(avatar_img).SetWidth(120).SetHeight(120).SetBorderRadius(new iText.Layout.Properties.BorderRadius(60)));
+                    .Add(new Paragraph("Avatar")
+                        .SetFont(font_bold).SetFontSize(11).SetFontColor(color_azul_umg))
+                    .Add(new Image(avatar_img).SetWidth(80).SetHeight(80)
+                        .SetBorderRadius(new iText.Layout.Properties.BorderRadius(40)));
             }
             catch
             {
-                avatar_cell.Add(new Paragraph("Avatar no disponible").SetFont(font_normal).SetFontSize(10));
+                avatar_cell.Add(new Paragraph("Avatar\nno disponible")
+                    .SetFont(font_normal).SetFontSize(9));
             }
         }
         else
         {
-            avatar_cell
-                .Add(new Paragraph($"[ {usuario.usuario} ]")
-                    .SetFont(font_bold).SetFontSize(24)
-                    .SetFontColor(ColorConstants.WHITE)
-                    .SetTextAlignment(TextAlignment.CENTER)
-                    .SetBackgroundColor(color_azul_umg)
-                    .SetPadding(30));
+            avatar_cell.Add(new Paragraph($"[ {usuario.usuario} ]")
+                .SetFont(font_bold).SetFontSize(16)
+                .SetFontColor(ColorConstants.WHITE)
+                .SetBackgroundColor(color_azul_umg)
+                .SetPadding(20));
         }
         qr_section.AddCell(avatar_cell);
+
+        // Columna 3 — Foto facial recortada (más grande)
+        var foto_cell = new Cell()
+            .SetBorder(iText.Layout.Borders.Border.NO_BORDER)
+            .SetPadding(10)
+            .SetVerticalAlignment(VerticalAlignment.MIDDLE)
+            .SetTextAlignment(TextAlignment.CENTER);
+
+        if (!string.IsNullOrEmpty(foto_facial_base64))
+        {
+            try
+            {
+                var foto_bytes = Convert.FromBase64String(
+                    foto_facial_base64.Contains(",")
+                        ? foto_facial_base64.Split(',')[1]
+                        : foto_facial_base64);
+                var foto_img = ImageDataFactory.Create(foto_bytes);
+                foto_cell
+                    .Add(new Paragraph("Foto del Conductor")
+                        .SetFont(font_bold).SetFontSize(11).SetFontColor(color_azul_umg))
+                    .Add(new Image(foto_img).SetWidth(110).SetHeight(110)
+                        .SetBorderRadius(new iText.Layout.Properties.BorderRadius(8)));
+            }
+            catch
+            {
+                foto_cell.Add(new Paragraph("Foto\nno disponible")
+                    .SetFont(font_normal).SetFontSize(9));
+            }
+        }
+        else
+        {
+            foto_cell.Add(new Paragraph("Sin foto\nregistrada")
+                .SetFont(font_normal).SetFontSize(9)
+                .SetFontColor(new DeviceRgb(150, 150, 150)));
+        }
+        qr_section.AddCell(foto_cell);
         doc.Add(qr_section);
 
         // ── FIRMA ELECTRÓNICA ────────────────────────────────
