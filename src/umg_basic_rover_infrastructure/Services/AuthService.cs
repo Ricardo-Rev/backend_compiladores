@@ -157,56 +157,54 @@ public class AuthService : IAuthService
         // 8. Generar y enviar credencial PDF
         //    Se hace FUERA de la transacción porque si el email falla
         //    no debe revertir el registro. El usuario ya existe en BD.
-// 8. Generar y enviar credencial PDF
-_ = Task.Run(async () =>
-{
-    using var scope      = _http.HttpContext!.RequestServices
-                               .GetRequiredService<IServiceScopeFactory>()
-                               .CreateScope();
-    var credential_svc   = scope.ServiceProvider.GetRequiredService<ICredentialService>();
-    try
-    {
-        await credential_svc.GenerarYEnviarAsync(nuevo_usuario.id);
-        _logger.LogInformation("[REGISTER] ✅ Credencial PDF enviada. Usuario ID: {id}", nuevo_usuario.id);
-    }
-    catch (Exception ex)
-    {
-        _logger.LogError(ex, "[REGISTER] ⚠️ Error al enviar credencial. Usuario ID: {id}", nuevo_usuario.id);
-    }
-});
-
-        // 9. Guardar rostro en autenticacion_facial si viene avatar
-_ = Task.Run(async () =>
-{
-    if (string.IsNullOrWhiteSpace(nuevo_usuario.avatar_base64)) return;
-    try
-    {
-        using var scope   = _http.HttpContext!.RequestServices
-                                .GetRequiredService<IServiceScopeFactory>()
-                                .CreateScope();
-        var face_svc = scope.ServiceProvider.GetRequiredService<FaceSegmentationService>();
-        var db_scope = scope.ServiceProvider.GetRequiredService<rover_db_context>();
-
-        var (ok, segmentado, _) = face_svc.SegmentFace(nuevo_usuario.avatar_base64);
-        if (ok && !string.IsNullOrWhiteSpace(segmentado))
+        var foto_facial = dto.foto_facial_base64;
+        // 8 y 9 — Primero guardar el rostro, luego generar la credencial
+        _ = Task.Run(async () =>
         {
-            db_scope.autenticacion_facial.Add(new autenticacion_facial_entity
+            using var scope      = _http.HttpContext!.RequestServices
+                                    .GetRequiredService<IServiceScopeFactory>()
+                                    .CreateScope();
+            var credential_svc   = scope.ServiceProvider.GetRequiredService<ICredentialService>();
+            var face_svc         = scope.ServiceProvider.GetRequiredService<FaceSegmentationService>();
+            var db_scope         = scope.ServiceProvider.GetRequiredService<rover_db_context>();
+
+            // 8. Guardar rostro PRIMERO
+            if (!string.IsNullOrWhiteSpace(foto_facial))
             {
-                usuario_id        = nuevo_usuario.id,
-                encoding_facial   = string.Empty,
-                imagen_referencia = segmentado,
-                activo            = true,
-                fecha_creacion    = DateTime.Now
-            });
-            await db_scope.SaveChangesAsync();
-            _logger.LogInformation("[REGISTER] ✅ Rostro guardado. Usuario ID: {id}", nuevo_usuario.id);
-        }
-    }
-    catch (Exception ex)
-    {
-        _logger.LogError(ex, "[REGISTER] ⚠️ Error al guardar rostro. Usuario ID: {id}", nuevo_usuario.id);
-    }
-});
+                try
+                {
+                    var (ok, segmentado, _) = face_svc.SegmentFace(foto_facial);
+                    if (ok && !string.IsNullOrWhiteSpace(segmentado))
+                    {
+                        db_scope.autenticacion_facial.Add(new autenticacion_facial_entity
+                        {
+                            usuario_id        = nuevo_usuario.id,
+                            encoding_facial   = string.Empty,
+                            imagen_referencia = segmentado,
+                            activo            = true,
+                            fecha_creacion    = DateTime.Now
+                        });
+                        await db_scope.SaveChangesAsync();
+                        _logger.LogInformation("[REGISTER] ✅ Rostro guardado. Usuario ID: {id}", nuevo_usuario.id);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[REGISTER] ⚠️ Error al guardar rostro. Usuario ID: {id}", nuevo_usuario.id);
+                }
+            }
+
+            // 9. Generar credencial PDF DESPUÉS del rostro
+            try
+            {
+                await credential_svc.GenerarYEnviarAsync(nuevo_usuario.id);
+                _logger.LogInformation("[REGISTER] ✅ Credencial PDF enviada. Usuario ID: {id}", nuevo_usuario.id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[REGISTER] ⚠️ Error al enviar credencial. Usuario ID: {id}", nuevo_usuario.id);
+            }
+        });
 
         return response!;
     }
