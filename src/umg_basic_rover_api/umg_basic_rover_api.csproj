@@ -5,6 +5,8 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <RuntimeIdentifiers>linux-x64</RuntimeIdentifiers>
+    <UseRidGraph>true</UseRidGraph>
   </PropertyGroup>
 
   <ItemGroup>
@@ -31,6 +33,7 @@
   <ItemGroup>
     <Content Include="haarcascade_frontalface_default.xml">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
 </Project>
