@@ -22,6 +22,7 @@ public class rover_db_context : DbContext
     public DbSet<metodo_notificacion_entity>      metodos_notificacion     => Set<metodo_notificacion_entity>();
     public DbSet<sesion_entity>                  sesiones                 => Set<sesion_entity>();
     public DbSet<credencial_pdf_entity>          credenciales_pdf         => Set<credencial_pdf_entity>();
+    public DbSet<token_email_verificacion_entity> tokens_email_verificacion => Set<token_email_verificacion_entity>();
 
     // ── BLOQUE 2: Bitácora ───────────────────────────────────
     public DbSet<bitacora_acceso_entity>         bitacora_accesos         => Set<bitacora_acceso_entity>();
@@ -479,6 +480,25 @@ public class rover_db_context : DbContext
              .WithMany()
              .HasForeignKey(x => x.usuario_id)
              .OnDelete(DeleteBehavior.Cascade);
+        });
+        
+        // ════════════════════════════════════════════════════
+        // BLOQUE 11: VERIFICACIÓN DE EMAIL
+        // ════════════════════════════════════════════════════
+
+        mb.Entity<token_email_verificacion_entity>(e =>
+        {
+            e.ToTable("tokens_email_verificacion");
+            e.HasKey(x => x.id);
+            e.Property(x => x.id).ValueGeneratedOnAdd();
+            e.Property(x => x.token).HasMaxLength(100).IsRequired();
+            e.Property(x => x.expira_en).IsRequired();
+            e.Property(x => x.usado).HasDefaultValue(false);
+            e.Property(x => x.fecha_creacion).HasDefaultValueSql("GETDATE()");
+            e.HasOne(x => x.usuario)
+            .WithMany()
+            .HasForeignKey(x => x.usuario_id)
+            .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

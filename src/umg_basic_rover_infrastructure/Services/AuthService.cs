@@ -204,6 +204,18 @@ public class AuthService : IAuthService
             {
                 _logger.LogError(ex, "[REGISTER] ⚠️ Error al enviar credencial. Usuario ID: {id}", nuevo_usuario.id);
             }
+
+            // 10. Enviar email de verificación
+            try
+            {
+                var verify_svc = scope.ServiceProvider.GetRequiredService<EmailVerificationService>();
+                await verify_svc.EnviarVerificacionAsync(nuevo_usuario.id, nuevo_usuario.email, nuevo_usuario.nombre_completo);
+                _logger.LogInformation("[REGISTER] ✅ Email de verificación enviado. Usuario ID: {id}", nuevo_usuario.id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[REGISTER] ⚠️ Error al enviar verificación. Usuario ID: {id}", nuevo_usuario.id);
+            }
         });
 
         return response!;

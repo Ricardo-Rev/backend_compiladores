@@ -120,6 +120,7 @@ builder.Services.AddScoped<ICompilerService, CompilerService>();
 
 // Features
 builder.Services.AddScoped<ICredentialService, CredentialService>();
+builder.Services.AddScoped<EmailVerificationService>();
 builder.Services.AddScoped<IFileService, FileService>();
 builder.Services.AddScoped<IChoreoService, ChoreoService>();
 
