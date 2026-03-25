@@ -85,7 +85,8 @@ public class EmailVerificationService
 
         var msg = SendGrid.Helpers.Mail.MailHelper.CreateSingleEmail(from, to, subject, "", html_body);
         var response = await client.SendEmailAsync(msg);
-        _logger.LogInformation("[EMAIL-VERIFY] Email enviado a {email} | Status: {s}", email, response.StatusCode);
+        var safe_email = email.Replace("\r", string.Empty).Replace("\n", string.Empty);
+        _logger.LogInformation("[EMAIL-VERIFY] Email de verificacion enviado. Usuario ID: {id} | Status: {s}", usuario_id, response.StatusCode);
     }
 
     // Valida el token y marca el correo como confirmado
