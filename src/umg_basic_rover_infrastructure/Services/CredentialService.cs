@@ -253,23 +253,40 @@ public class CredentialService : ICredentialService
         {
             try
             {
-                var svg_base64 = usuario.avatar_base64.Contains(",")
+                // Soporta PNG, JPEG y SVG — extrae solo los bytes base64
+                var raw = usuario.avatar_base64.Contains(",")
                     ? usuario.avatar_base64.Split(',')[1]
                     : usuario.avatar_base64;
-                var svg_bytes = Convert.FromBase64String(svg_base64);
-                using var svg_stream = new MemoryStream(svg_bytes);
-                var svg = new Svg.Skia.SKSvg();
-                svg.Load(svg_stream);
-                using var bitmap = new SkiaSharp.SKBitmap(200, 200);
-                using var canvas_sk = new SkiaSharp.SKCanvas(bitmap);
-                canvas_sk.Clear(SkiaSharp.SKColors.White);
-                var scale_x = 200f / svg.Picture!.CullRect.Width;
-                var scale_y = 200f / svg.Picture.CullRect.Height;
-                var matrix  = SkiaSharp.SKMatrix.CreateScale(scale_x, scale_y);
-                canvas_sk.DrawPicture(svg.Picture, ref matrix);
-                using var png_stream = new MemoryStream();
-                bitmap.Encode(png_stream, SkiaSharp.SKEncodedImageFormat.Png, 100);
-                var avatar_img = ImageDataFactory.Create(png_stream.ToArray());
+
+                var img_bytes = Convert.FromBase64String(raw);
+
+                // Si es SVG intenta renderizarlo a PNG, si no úsalo directo
+                byte[] png_bytes;
+                if (usuario.avatar_base64.Contains("image/svg") ||
+                    usuario.avatar_base64.TrimStart().StartsWith("<svg") ||
+                    (img_bytes.Length > 4 && img_bytes[0] == '<'))
+                {
+                    using var svg_stream = new MemoryStream(img_bytes);
+                    var svg = new Svg.Skia.SKSvg();
+                    svg.Load(svg_stream);
+                    using var bitmap   = new SkiaSharp.SKBitmap(200, 200);
+                    using var canvas_sk = new SkiaSharp.SKCanvas(bitmap);
+                    canvas_sk.Clear(SkiaSharp.SKColors.White);
+                    var scale_x = 200f / svg.Picture!.CullRect.Width;
+                    var scale_y = 200f / svg.Picture.CullRect.Height;
+                    var matrix  = SkiaSharp.SKMatrix.CreateScale(scale_x, scale_y);
+                    canvas_sk.DrawPicture(svg.Picture, ref matrix);
+                    using var png_stream = new MemoryStream();
+                    bitmap.Encode(png_stream, SkiaSharp.SKEncodedImageFormat.Png, 100);
+                    png_bytes = png_stream.ToArray();
+                }
+                else
+                {
+                    // PNG o JPEG directo — úsalo tal cual
+                    png_bytes = img_bytes;
+                }
+
+                var avatar_img = ImageDataFactory.Create(png_bytes);
                 avatar_cell
                     .Add(new Paragraph("Avatar")
                         .SetFont(font_bold).SetFontSize(9).SetFontColor(color_cyan))

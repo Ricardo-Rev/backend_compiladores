@@ -158,12 +158,13 @@ public class AuthService : IAuthService
         //    Se hace FUERA de la transacción porque si el email falla
         //    no debe revertir el registro. El usuario ya existe en BD.
         var foto_facial = dto.foto_facial_base64;
+        var scope_factory = _http.HttpContext!.RequestServices
+                        .GetRequiredService<IServiceScopeFactory>();
         // 8 y 9 — Primero guardar el rostro, luego generar la credencial
         _ = Task.Run(async () =>
+        
         {
-            using var scope      = _http.HttpContext!.RequestServices
-                                    .GetRequiredService<IServiceScopeFactory>()
-                                    .CreateScope();
+            using var scope = scope_factory.CreateScope();
             var credential_svc   = scope.ServiceProvider.GetRequiredService<ICredentialService>();
             var face_svc         = scope.ServiceProvider.GetRequiredService<FaceSegmentationService>();
             var db_scope         = scope.ServiceProvider.GetRequiredService<rover_db_context>();
