@@ -117,11 +117,10 @@ public class CredentialController : ControllerBase
     
     /// <summary>
     /// Verifica si un PDF de credencial es auténtico.
-    /// El usuario solo sube el PDF — el sistema verifica la firma internamente.
-    /// No requiere autenticación: cualquiera puede verificar una credencial.
     /// </summary>
     [HttpPost("verify")]
     [AllowAnonymous]
+    [Consumes("multipart/form-data")]
     [ProducesResponseType(typeof(VerificarCredencialResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Verify(IFormFile? pdf)
