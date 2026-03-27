@@ -71,7 +71,7 @@ public class CredentialService : ICredentialService
         var pdf_b64   = Convert.ToBase64String(pdf_bytes);
 
         // 3. Firma electrónica (hash SHA-256 del PDF = firma básica avanzada)
-        var firma = ComputarFirma(pdf_bytes, usuario_id);
+        var firma = await FirmarPdfConApiAsync(pdf_bytes);
 
         // 4. Persistir credencial
         var credencial = new credencial_pdf_entity
@@ -332,17 +332,15 @@ public class CredentialService : ICredentialService
         // ── FIRMA ELECTRÓNICA ───────────────────────────────────
         var firma_panel = new Table(1).UseAllAvailableWidth();
         firma_panel.SetMarginBottom(10);
-        var firma_hash = ComputarFirma(qr_bytes, usuario.id);
-
         var firma_cell = new Cell()
             .SetBackgroundColor(color_purp_bg)
             .SetPadding(10)
             .SetBorder(new iText.Layout.Borders.SolidBorder(color_purpura, 1.5f))
-            .Add(new Paragraph("FIRMA ELECTRONICA AVANZADA")
+            .Add(new Paragraph("FIRMA ELECTRONICA AVANZADA — RSA-2048")
                 .SetFont(font_bold).SetFontSize(9).SetFontColor(color_purpura))
-            .Add(new Paragraph(firma_hash)
-                .SetFont(font_mono).SetFontSize(7f).SetFontColor(color_texto))
-            .Add(new Paragraph($"Emitida: {DateTime.Now:dd/MM/yyyy HH:mm:ss} UTC  |  Algoritmo: SHA-256  |  Proyecto: UMG Basic Rover 2.0-2026")
+            .Add(new Paragraph("Documento firmado con clave privada RSA-2048. Verificable en: https://firmaelectronicaapi-production.up.railway.app/swagger")
+                .SetFont(font_normal).SetFontSize(7.5f).SetFontColor(color_texto))
+            .Add(new Paragraph($"Emitida: {DateTime.Now:dd/MM/yyyy HH:mm:ss} UTC  |  Algoritmo: RSA-2048 SHA-256 PKCS1  |  Proyecto: UMG Basic Rover 2.0-2026")
                 .SetFont(font_normal).SetFontSize(7.5f).SetFontColor(color_texto));
         firma_panel.AddCell(firma_cell);
         doc.Add(firma_panel);
@@ -469,7 +467,7 @@ public class CredentialService : ICredentialService
         <p style='color:#333; font-size:15px;'>Adjunto encontrarás tu <strong>credencial de acceso en formato PDF</strong>, firmada electrónicamente con tu información y código QR de acceso.</p>
         <div style='background:#f0f4ff; border-left:4px solid #003087; padding:14px; margin:20px 0; border-radius:4px;'>
             <p style='margin:0; font-size:13px; color:#555;'><strong>Firma Electrónica:</strong><br/>
-            <code style='font-size:11px; word-break:break-all;'>{firma[..32]}...</code></p>
+            <code style='font-size:11px; word-break:break-all;'>{(firma.Length > 32 ? firma[..32] + "..." : firma)}</code></p>
         </div>
         <p style='color:#555; font-size:13px;'>Usa tu nickname <strong>{usuario.usuario}</strong> y contraseña para ingresar a la plataforma.</p>
         </div>
@@ -562,5 +560,111 @@ public class CredentialService : ICredentialService
             fecha_envio   = DateTime.Now
         });
         await _db.SaveChangesAsync();
+    }
+
+    private async Task<string> FirmarPdfConApiAsync(byte[] pdf_bytes)
+    {
+        try
+        {
+            var base_url = _config["FirmaElectronica:BaseUrl"]
+                ?? throw new InvalidOperationException("FirmaElectronica:BaseUrl no configurado.");
+            var api_key  = _config["FirmaElectronica:ApiKey"]
+                ?? throw new InvalidOperationException("FirmaElectronica:ApiKey no configurado.");
+
+            using var http    = new HttpClient();
+            using var content = new MultipartFormDataContent();
+
+            http.DefaultRequestHeaders.Add("X-Api-Key", api_key);
+
+            var pdf_content = new ByteArrayContent(pdf_bytes);
+            pdf_content.Headers.ContentType =
+                new System.Net.Http.Headers.MediaTypeHeaderValue("application/pdf");
+            content.Add(pdf_content, "pdf", "credencial.pdf");
+
+            var response = await http.PostAsync($"{base_url}/sign", content);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("[CREDENTIAL] API firma respondió {s} — PDF no registrado.", response.StatusCode);
+                return string.Empty;
+            }
+
+            // La firma ahora se guarda internamente en la API de firma
+            // El campo firma_electronica solo guarda confirmación
+            _logger.LogInformation("[CREDENTIAL] ✅ PDF firmado y registrado en API de firma.");
+            return "RSA-2048-SHA256-PKCS1";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[CREDENTIAL] ❌ Error al llamar API firma.");
+            return string.Empty;
+        }
+    }
+
+    // ── VERIFICAR CREDENCIAL ──────────────────────────────────
+    public async Task<VerificarCredencialResponse> VerificarCredencialAsync(byte[] pdf_bytes)
+    {
+        try
+        {
+            var base_url = _config["FirmaElectronica:BaseUrl"]
+                ?? throw new InvalidOperationException("FirmaElectronica:BaseUrl no configurado.");
+
+            using var http    = new HttpClient();
+            using var content = new MultipartFormDataContent();
+
+            // Solo mandamos el PDF — la API de firma busca la firma internamente
+            var pdf_content = new ByteArrayContent(pdf_bytes);
+            pdf_content.Headers.ContentType =
+                new System.Net.Http.Headers.MediaTypeHeaderValue("application/pdf");
+            content.Add(pdf_content, "pdf", "credencial.pdf");
+
+            var response = await http.PostAsync($"{base_url}/verify", content);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("[CREDENTIAL] API firma respondió {s} al verificar.", response.StatusCode);
+                return new VerificarCredencialResponse
+                {
+                    valido  = false,
+                    mensaje = "❌ No se pudo contactar el servicio de firma.",
+                    algoritmo = "RSA-2048 SHA-256 PKCS1"
+                };
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            var doc  = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            var valido    = root.GetProperty("valido").GetBoolean();
+            var mensaje   = root.GetProperty("mensaje").GetString() ?? string.Empty;
+            var algoritmo = root.GetProperty("algoritmo").GetString() ?? string.Empty;
+
+            DateTime? fecha_firma = null;
+            if (root.TryGetProperty("fecha_firma", out var fecha_el) &&
+                fecha_el.ValueKind != System.Text.Json.JsonValueKind.Null)
+            {
+                fecha_firma = fecha_el.GetDateTime();
+            }
+
+            _logger.LogInformation("[CREDENTIAL] Verificación: {v} — {m}", valido, mensaje);
+
+            return new VerificarCredencialResponse
+            {
+                valido     = valido,
+                mensaje    = mensaje,
+                algoritmo  = algoritmo,
+                fecha_firma = fecha_firma
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[CREDENTIAL] ❌ Error al verificar credencial.");
+            return new VerificarCredencialResponse
+            {
+                valido    = false,
+                mensaje   = "❌ Error interno al verificar el documento.",
+                algoritmo = "RSA-2048 SHA-256 PKCS1"
+            };
+        }
     }
 }

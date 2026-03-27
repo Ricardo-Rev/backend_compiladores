@@ -20,6 +20,12 @@ public interface ICredentialService
     /// Reenvía la credencial si el usuario la solicita de nuevo.
     /// </summary>
     Task<CredentialResponse> ReenviarAsync(int usuario_id);
+
+    /// <summary>
+    /// Verifica si un PDF es auténtico consultando la API de firma.
+    /// El usuario solo manda el PDF — el sistema busca la firma internamente.
+    /// </summary>
+    Task<VerificarCredencialResponse> VerificarCredencialAsync(byte[] pdf_bytes);
 }
 
 // ============================================================
