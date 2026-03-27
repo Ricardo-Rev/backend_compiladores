@@ -467,7 +467,7 @@ public class CredentialService : ICredentialService
         <p style='color:#333; font-size:15px;'>Adjunto encontrarás tu <strong>credencial de acceso en formato PDF</strong>, firmada electrónicamente con tu información y código QR de acceso.</p>
         <div style='background:#f0f4ff; border-left:4px solid #003087; padding:14px; margin:20px 0; border-radius:4px;'>
             <p style='margin:0; font-size:13px; color:#555;'><strong>Firma Electrónica:</strong><br/>
-            <code style='font-size:11px; word-break:break-all;'>{firma[..32]}...</code></p>
+            <code style='font-size:11px; word-break:break-all;'>{(firma.Length > 32 ? firma[..32] + "..." : firma)}</code></p>
         </div>
         <p style='color:#555; font-size:13px;'>Usa tu nickname <strong>{usuario.usuario}</strong> y contraseña para ingresar a la plataforma.</p>
         </div>
@@ -561,6 +561,7 @@ public class CredentialService : ICredentialService
         });
         await _db.SaveChangesAsync();
     }
+
     private async Task<string> FirmarPdfConApiAsync(byte[] pdf_bytes)
     {
         try
@@ -576,30 +577,30 @@ public class CredentialService : ICredentialService
             http.DefaultRequestHeaders.Add("X-Api-Key", api_key);
 
             var pdf_content = new ByteArrayContent(pdf_bytes);
-            pdf_content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/pdf");
+            pdf_content.Headers.ContentType =
+                new System.Net.Http.Headers.MediaTypeHeaderValue("application/pdf");
             content.Add(pdf_content, "pdf", "credencial.pdf");
 
             var response = await http.PostAsync($"{base_url}/sign", content);
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("[CREDENTIAL] API firma respondió {s} — usando SHA-256 como fallback.", response.StatusCode);
-                return ComputarFirma(pdf_bytes, 0);
+                _logger.LogWarning("[CREDENTIAL] API firma respondió {s} — PDF no registrado.", response.StatusCode);
+                return string.Empty;
             }
 
-            var json  = await response.Content.ReadAsStringAsync();
-            var doc   = System.Text.Json.JsonDocument.Parse(json);
-            var firma = doc.RootElement.GetProperty("firma").GetString() ?? string.Empty;
-
-            _logger.LogInformation("[CREDENTIAL] ✅ Firma RSA obtenida de API externa.");
-            return firma;
+            // La firma ahora se guarda internamente en la API de firma
+            // El campo firma_electronica solo guarda confirmación
+            _logger.LogInformation("[CREDENTIAL] ✅ PDF firmado y registrado en API de firma.");
+            return "RSA-2048-SHA256-PKCS1";
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[CREDENTIAL] ❌ Error al llamar API firma — usando SHA-256 como fallback.");
-            return ComputarFirma(pdf_bytes, 0);
+            _logger.LogError(ex, "[CREDENTIAL] ❌ Error al llamar API firma.");
+            return string.Empty;
         }
     }
+
     // ── VERIFICAR CREDENCIAL ──────────────────────────────────
     public async Task<VerificarCredencialResponse> VerificarCredencialAsync(byte[] pdf_bytes)
     {
