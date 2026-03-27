@@ -16,6 +16,15 @@ public class CredentialResponse
     public DateTime fecha_generacion { get; set; }
 }
 
+// ── NUEVO ─────────────────────────────────────────────────
+public class VerificarCredencialResponse
+{
+    public bool     valido      { get; set; }
+    public string   mensaje     { get; set; } = string.Empty;
+    public string   algoritmo   { get; set; } = string.Empty;
+    public DateTime? fecha_firma { get; set; }
+}
+
 // ============================================================
 //  FileDTOs.cs
 // ============================================================

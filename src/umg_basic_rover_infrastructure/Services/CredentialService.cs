@@ -600,4 +600,70 @@ public class CredentialService : ICredentialService
             return ComputarFirma(pdf_bytes, 0);
         }
     }
+    // ── VERIFICAR CREDENCIAL ──────────────────────────────────
+    public async Task<VerificarCredencialResponse> VerificarCredencialAsync(byte[] pdf_bytes)
+    {
+        try
+        {
+            var base_url = _config["FirmaElectronica:BaseUrl"]
+                ?? throw new InvalidOperationException("FirmaElectronica:BaseUrl no configurado.");
+
+            using var http    = new HttpClient();
+            using var content = new MultipartFormDataContent();
+
+            // Solo mandamos el PDF — la API de firma busca la firma internamente
+            var pdf_content = new ByteArrayContent(pdf_bytes);
+            pdf_content.Headers.ContentType =
+                new System.Net.Http.Headers.MediaTypeHeaderValue("application/pdf");
+            content.Add(pdf_content, "pdf", "credencial.pdf");
+
+            var response = await http.PostAsync($"{base_url}/verify", content);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("[CREDENTIAL] API firma respondió {s} al verificar.", response.StatusCode);
+                return new VerificarCredencialResponse
+                {
+                    valido  = false,
+                    mensaje = "❌ No se pudo contactar el servicio de firma.",
+                    algoritmo = "RSA-2048 SHA-256 PKCS1"
+                };
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            var doc  = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            var valido    = root.GetProperty("valido").GetBoolean();
+            var mensaje   = root.GetProperty("mensaje").GetString() ?? string.Empty;
+            var algoritmo = root.GetProperty("algoritmo").GetString() ?? string.Empty;
+
+            DateTime? fecha_firma = null;
+            if (root.TryGetProperty("fecha_firma", out var fecha_el) &&
+                fecha_el.ValueKind != System.Text.Json.JsonValueKind.Null)
+            {
+                fecha_firma = fecha_el.GetDateTime();
+            }
+
+            _logger.LogInformation("[CREDENTIAL] Verificación: {v} — {m}", valido, mensaje);
+
+            return new VerificarCredencialResponse
+            {
+                valido     = valido,
+                mensaje    = mensaje,
+                algoritmo  = algoritmo,
+                fecha_firma = fecha_firma
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[CREDENTIAL] ❌ Error al verificar credencial.");
+            return new VerificarCredencialResponse
+            {
+                valido    = false,
+                mensaje   = "❌ Error interno al verificar el documento.",
+                algoritmo = "RSA-2048 SHA-256 PKCS1"
+            };
+        }
+    }
 }
