@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using QRCoder;
+using iText.Kernel.Geom;
 using iText.Kernel.Pdf;
 using iText.Layout;
 using iText.Layout.Element;
@@ -13,7 +14,6 @@ using iText.Kernel.Colors;
 using iText.Kernel.Font;
 using iText.IO.Font.Constants;
 using iText.IO.Image;
-using iText.Kernel.Geom;
 using umg_basic_rover_application.Contracts;
 using umg_basic_rover_application.DTOs;
 using umg_basic_rover_domain.entities;
@@ -235,34 +235,38 @@ public class CredentialService : ICredentialService
             // El PDF se genera igual, solo sin imagen de fondo
         }
 
+        // ── COORDENADAS CALCULADAS MATEMÁTICAMENTE ───────────────
+        // Imagen original: 1024x1536 px -> A4: 595x842 pts
+        // Scale X=0.5811 | Scale Y=0.5482 | iText origen=esquina inferior izq
+
         // ── ENCABEZADO ───────────────────────────────────────────
         doc.Add(new Paragraph("UMG  ++")
-            .SetFont(font_bold).SetFontSize(22f)
+            .SetFont(font_bold).SetFontSize(26f)
             .SetFontColor(cyan)
-            .SetFixedPosition(55f, 778f, 180f));
+            .SetFixedPosition(90f, 760f, 200f));
 
         doc.Add(new Paragraph("Universidad Mariano Galvez - Ingenieria en Sistemas 2026")
-            .SetFont(font_normal).SetFontSize(8f)
+            .SetFont(font_normal).SetFontSize(8.5f)
             .SetFontColor(blanco)
-            .SetFixedPosition(55f, 763f, 340f));
+            .SetFixedPosition(90f, 745f, 350f));
 
         doc.Add(new Paragraph("PILOTO")
             .SetFont(font_bold).SetFontSize(10f)
             .SetFontColor(blanco)
-            .SetFixedPosition(W - 105f, 778f, 80f));
+            .SetFixedPosition(488f, 768f, 80f));
 
         // ── SUBTÍTULO ────────────────────────────────────────────
         doc.Add(new Paragraph("CREDENCIAL DE ACCESO — BASIC ROVER 2.0")
             .SetFont(font_bold).SetFontSize(11f)
             .SetFontColor(blanco)
             .SetTextAlignment(TextAlignment.CENTER)
-            .SetFixedPosition(50f, 730f, W - 100f));
+            .SetFixedPosition(75f, 720f, W - 110f));
 
-        // ── AVATAR ───────────────────────────────────────────────
-        const float AVATAR_X = 65f;
-        const float AVATAR_Y = 580f;
-        const float AVATAR_W = 95f;
-        const float AVATAR_H = 110f;
+        // ── AVATAR (izquierda, x=58, y=593, w=110, h=126) ────────
+        const float AVATAR_X = 58f;
+        const float AVATAR_Y = 593f;
+        const float AVATAR_W = 110f;
+        const float AVATAR_H = 126f;
 
         if (!string.IsNullOrEmpty(usuario.avatar_base64))
         {
@@ -304,76 +308,55 @@ public class CredentialService : ICredentialService
             }
             catch
             {
-                // Avatar inválido — placeholder con iniciales
                 doc.Add(new Paragraph(usuario.usuario[..Math.Min(2, usuario.usuario.Length)].ToUpper())
-                    .SetFont(font_bold).SetFontSize(24f)
+                    .SetFont(font_bold).SetFontSize(26f)
                     .SetFontColor(cyan)
-                    .SetFixedPosition(AVATAR_X + 28f, AVATAR_Y + 40f, AVATAR_W));
+                    .SetFixedPosition(AVATAR_X + 30f, AVATAR_Y + 45f, AVATAR_W));
             }
         }
         else
         {
             doc.Add(new Paragraph(usuario.usuario[..Math.Min(2, usuario.usuario.Length)].ToUpper())
-                .SetFont(font_bold).SetFontSize(24f)
+                .SetFont(font_bold).SetFontSize(26f)
                 .SetFontColor(cyan)
-                .SetFixedPosition(AVATAR_X + 28f, AVATAR_Y + 40f, AVATAR_W));
+                .SetFixedPosition(AVATAR_X + 30f, AVATAR_Y + 45f, AVATAR_W));
         }
 
-        // ── NOMBRE Y USUARIO (a la derecha del avatar) ───────────
+        // ── NOMBRE Y USUARIO (derecha del avatar) ────────────────
+        // x=192, calculado de la imagen
         doc.Add(new Paragraph("NOMBRE COMPLETO")
-            .SetFont(font_bold).SetFontSize(8f)
+            .SetFont(font_bold).SetFontSize(8.5f)
             .SetFontColor(cyan)
-            .SetFixedPosition(185f, 692f, 280f));
+            .SetFixedPosition(192f, 698f, 255f));
 
         doc.Add(new Paragraph(usuario.nombre_completo ?? usuario.usuario)
-            .SetFont(font_bold).SetFontSize(14f)
+            .SetFont(font_bold).SetFontSize(16f)
             .SetFontColor(blanco)
-            .SetFixedPosition(185f, 674f, 280f));
+            .SetFixedPosition(192f, 675f, 255f));
 
         doc.Add(new Paragraph("USUARIO")
-            .SetFont(font_bold).SetFontSize(8f)
+            .SetFont(font_bold).SetFontSize(8.5f)
             .SetFontColor(cyan)
-            .SetFixedPosition(185f, 644f, 280f));
+            .SetFixedPosition(192f, 649f, 255f));
 
         doc.Add(new Paragraph(usuario.usuario)
-            .SetFont(font_normal).SetFontSize(12f)
+            .SetFont(font_normal).SetFontSize(14f)
             .SetFontColor(blanco)
-            .SetFixedPosition(185f, 628f, 280f));
+            .SetFixedPosition(192f, 627f, 255f));
 
-        // ── QR (esquina superior derecha) ────────────────────────
+        // ── QR (derecha, x=459, y=618, w=108, h=101) ─────────────
         doc.Add(new Image(ImageDataFactory.Create(qr_bytes))
-            .SetFixedPosition(W - 128f, 608f)
-            .SetWidth(88f)
-            .SetHeight(88f));
+            .SetFixedPosition(459f, 618f)
+            .SetWidth(108f)
+            .SetHeight(101f));
 
         doc.Add(new Paragraph("Código QR\nde acceso")
             .SetFont(font_normal).SetFontSize(7.5f)
             .SetFontColor(blanco)
             .SetTextAlignment(TextAlignment.CENTER)
-            .SetFixedPosition(W - 128f, 592f, 88f));
+            .SetFixedPosition(459f, 600f, 108f));
 
-        // ── CAMPOS INFERIORES ────────────────────────────────────
-        const float CAMPO_X = 55f;
-        const float CAMPO_W = W - 110f;
-
-        DibujarCampo(doc, "USUARIO",
-            usuario.email ?? "",
-            CAMPO_X, 530f, CAMPO_W, font_bold, font_normal, cyan, blanco, 8f, 11f);
-
-        DibujarCampo(doc, "CORREO ELECTRÓNICO",
-            usuario.email ?? "",
-            CAMPO_X, 484f, CAMPO_W, font_bold, font_normal, cyan, blanco, 8f, 11f);
-
-        DibujarCampo(doc, "WHATSAPP",
-            usuario.telefono ?? "",
-            CAMPO_X, 438f, CAMPO_W, font_bold, font_normal, cyan, blanco, 8f, 11f);
-
-        var vigencia = $"{usuario.fecha_creacion:dd/MM/yyyy} - {usuario.fecha_creacion.AddYears(1):dd/MM/yyyy}";
-        DibujarCampo(doc, "EMISIÓN - VIGENCIA",
-            vigencia,
-            CAMPO_X, 392f, CAMPO_W, font_bold, font_normal, cyan, blanco, 8f, 11f);
-
-        // ── FOTO FACIAL (si existe) ───────────────────────────────
+        // ── FOTO FACIAL (si existe, debajo del QR) ───────────────
         if (!string.IsNullOrEmpty(foto_facial_base64))
         {
             try
@@ -383,18 +366,41 @@ public class CredentialService : ICredentialService
                         ? foto_facial_base64.Split(',')[1]
                         : foto_facial_base64);
                 doc.Add(new Image(ImageDataFactory.Create(foto_bytes))
-                    .SetFixedPosition(W - 125f, 430f)
-                    .SetWidth(80f)
-                    .SetHeight(80f));
+                    .SetFixedPosition(459f, 490f)
+                    .SetWidth(108f)
+                    .SetHeight(101f));
             }
-            catch { /* Si falla la foto facial, continúa sin ella */ }
+            catch { /* continúa sin foto facial */ }
         }
 
-        // ── FIRMA ELECTRÓNICA ────────────────────────────────────
+        // ── CAMPOS INFERIORES ────────────────────────────────────
+        // Coordenadas calculadas de la imagen: x=58, ancho=340
+        // Y calculado: 533, 457, 380, 303
+        const float CAMPO_X = 58f;
+        const float CAMPO_W = 340f;
+
+        DibujarCampo(doc, "USUARIO",
+            usuario.email ?? "",
+            CAMPO_X, 533f, CAMPO_W, font_bold, font_normal, cyan, blanco, 9f, 13f);
+
+        DibujarCampo(doc, "CORREO ELECTRÓNICO",
+            usuario.email ?? "",
+            CAMPO_X, 457f, CAMPO_W, font_bold, font_normal, cyan, blanco, 9f, 13f);
+
+        DibujarCampo(doc, "WHATSAPP",
+            usuario.telefono ?? "",
+            CAMPO_X, 380f, CAMPO_W, font_bold, font_normal, cyan, blanco, 9f, 13f);
+
+        var vigencia = $"{usuario.fecha_creacion:dd/MM/yyyy} - {usuario.fecha_creacion.AddYears(1):dd/MM/yyyy}";
+        DibujarCampo(doc, "EMISIÓN - VIGENCIA",
+            vigencia,
+            CAMPO_X, 303f, CAMPO_W, font_bold, font_normal, cyan, blanco, 9f, 13f);
+
+        // ── FIRMA ELECTRÓNICA (y=243, calculado) ─────────────────
         doc.Add(new Paragraph("FIRMA ELECTRÓNICA AVANZADA")
-            .SetFont(font_bold).SetFontSize(9f)
+            .SetFont(font_bold).SetFontSize(10f)
             .SetFontColor(purpura)
-            .SetFixedPosition(CAMPO_X, 328f, CAMPO_W));
+            .SetFixedPosition(CAMPO_X, 243f, CAMPO_W + 140f));
 
         var hash_firma = Convert.ToHexString(
             System.Security.Cryptography.SHA256.HashData(
@@ -402,20 +408,20 @@ public class CredentialService : ICredentialService
                     $"{usuario.usuario}{usuario.email}{usuario.fecha_creacion:yyyyMMddHHmmss}")));
 
         doc.Add(new Paragraph(hash_firma)
-            .SetFont(font_mono).SetFontSize(7f)
+            .SetFont(font_mono).SetFontSize(7.5f)
             .SetFontColor(blanco)
-            .SetFixedPosition(CAMPO_X, 312f, CAMPO_W));
+            .SetFixedPosition(CAMPO_X, 227f, CAMPO_W + 140f));
 
         doc.Add(new Paragraph("SHA-256 · AES-256 · UMG Basic Rover 2.0-2026")
-            .SetFont(font_normal).SetFontSize(7.5f)
+            .SetFont(font_normal).SetFontSize(8.5f)
             .SetFontColor(gris)
-            .SetFixedPosition(CAMPO_X, 296f, CAMPO_W));
+            .SetFixedPosition(CAMPO_X, 211f, CAMPO_W + 140f));
 
-        // ── SELLO VERIFICADO ─────────────────────────────────────
-        doc.Add(new Paragraph("✓  VERIFICADO")
-            .SetFont(font_bold).SetFontSize(12f)
-            .SetFontColor(cyan)
-            .SetFixedPosition(W - 140f, 72f, 120f));
+        // ── SELLO VERIFICADO (x=447, y=60, calculado) ────────────
+        doc.Add(new Paragraph("VERIFICADO")
+            .SetFont(font_bold).SetFontSize(14f)
+            .SetFontColor(blanco)
+            .SetFixedPosition(447f, 60f, 130f));
 
         doc.Close();
         return ms.ToArray();
