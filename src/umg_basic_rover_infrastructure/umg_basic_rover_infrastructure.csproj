@@ -5,13 +5,12 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <RuntimeIdentifiers>linux-x64</RuntimeIdentifiers>
-    <UseRidGraph>true</UseRidGraph>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="OpenCvSharp4" Version="4.6.0.20220608" />
-    <PackageReference Include="OpenCvSharp4.runtime.ubuntu.20.04-x64" Version="4.6.0.20220608" />
+    <PackageReference Include="SkiaSharp" Version="2.88.9" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="2.88.7" />
+    <PackageReference Include="SendGrid" Version="9.29.3" />
     <!-- ── Auth (de Sergio) ───────────────────────────────── -->
     <PackageReference Include="BCrypt.Net-Next" Version="4.1.0" />
     <PackageReference Include="itext7.bouncy-castle-adapter" Version="8.0.5" />
@@ -31,6 +30,7 @@
     <!-- ── Credencial PDF (CredentialService) ─────────────── -->
     <PackageReference Include="itext7" Version="8.0.5" />
     <PackageReference Include="QRCoder" Version="1.6.0" />
+    <PackageReference Include="Svg.Skia" Version="3.6.0" />
     <PackageReference Include="Twilio" Version="7.3.1" />
   </ItemGroup>
 

@@ -114,7 +114,42 @@ public class CredentialController : ControllerBase
 
         return Ok(credencial);
     }
+    
+    /// <summary>
+    /// Verifica si un PDF de credencial es auténtico.
+    /// </summary>
+    [HttpPost("verify")]
+    [AllowAnonymous]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(typeof(VerificarCredencialResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> Verify(IFormFile? pdf)
+    {
+        if (pdf is null || pdf.Length == 0)
+            return BadRequest(new { error = "Archivo PDF requerido." });
 
+        if (!pdf.ContentType.Contains("pdf") &&
+            !pdf.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { error = "El archivo debe ser un PDF." });
+
+        try
+        {
+            using var ms = new MemoryStream();
+            await pdf.CopyToAsync(ms);
+            var pdf_bytes = ms.ToArray();
+
+            _logger.LogInformation("[CREDENTIAL-CTRL] Verificando PDF: {nombre} ({bytes} bytes)",
+                pdf.FileName, pdf_bytes.Length);
+
+            var resultado = await _credential.VerificarCredencialAsync(pdf_bytes);
+            return Ok(resultado);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[CREDENTIAL-CTRL] Error al verificar credencial.");
+            return StatusCode(500, new { error = "Error al verificar la credencial." });
+        }
+    }
     private int ObtenerUsuarioId()
     {
         var uid_str = User.FindFirstValue(ClaimTypes.NameIdentifier);

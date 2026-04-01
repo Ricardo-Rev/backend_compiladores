@@ -10,6 +10,11 @@ using umg_basic_rover_infrastructure.persistence.context;
 var builder = WebApplication.CreateBuilder(args);
 
 // ─────────────────────────────────────────────
+// 🔥 0. VARIABLES DE ENTORNO (IMPORTANTE PARA RAILWAY)
+// ─────────────────────────────────────────────
+builder.Configuration.AddEnvironmentVariables();
+
+// ─────────────────────────────────────────────
 // 1. CONFIGURACIÓN DE PUERTO (AZURE / CLOUD)
 // ─────────────────────────────────────────────
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
@@ -18,6 +23,9 @@ builder.WebHost.ConfigureKestrel(serverOptions =>
 {
     serverOptions.ListenAnyIP(int.Parse(port));
 });
+
+// 🔥 Compatibilidad adicional (Railway / Docker / fallback)
+builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
 // ─────────────────────────────────────────────
 // 2. BASE DE DATOS
@@ -112,11 +120,16 @@ builder.Services.AddScoped<ICompilerService, CompilerService>();
 
 // Features
 builder.Services.AddScoped<ICredentialService, CredentialService>();
+builder.Services.AddScoped<EmailVerificationService>();
 builder.Services.AddScoped<IFileService, FileService>();
 builder.Services.AddScoped<IChoreoService, ChoreoService>();
 
 // Servicio de segmentación facial
-builder.Services.AddSingleton<FaceSegmentationService>();
+builder.Services.AddSingleton<FaceSegmentationService>(sp =>
+    new FaceSegmentationService(
+        sp.GetRequiredService<ILogger<FaceSegmentationService>>(),
+        sp.GetRequiredService<IConfiguration>()
+    ));
 
 // ─────────────────────────────────────────────
 // 6. CONTROLADORES

@@ -1,17 +1,27 @@
+using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using OpenCvSharp;
 
 namespace umg_basic_rover_infrastructure.Services;
 
 public class FaceSegmentationService
 {
     private readonly ILogger<FaceSegmentationService> _logger;
-    private const string CASCADE_NAME = "haarcascade_frontalface_default.xml";
+    private readonly IConfiguration _config;
+    private readonly HttpClient _http;
 
-    public FaceSegmentationService(ILogger<FaceSegmentationService> logger)
+    private const string DETECT_URL  = "https://api-us.faceplusplus.com/facepp/v3/detect";
+    private const string COMPARE_URL = "https://api-us.faceplusplus.com/facepp/v3/compare";
+
+    public FaceSegmentationService(ILogger<FaceSegmentationService> logger, IConfiguration config)
     {
         _logger = logger;
+        _config = config;
+        _http   = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
     }
+
+    private string ApiKey    => _config["FacePlusPlus:ApiKey"]    ?? throw new InvalidOperationException("FacePlusPlus:ApiKey no configurado.");
+    private string ApiSecret => _config["FacePlusPlus:ApiSecret"] ?? throw new InvalidOperationException("FacePlusPlus:ApiSecret no configurado.");
 
     public (bool Success, string? Base64Result, string? Message) SegmentFace(string imageBase64)
     {
@@ -21,53 +31,34 @@ public class FaceSegmentationService
                 ? imageBase64.Split(',')[1]
                 : imageBase64;
 
-            var imageBytes = Convert.FromBase64String(cleanBase64);
+            var form = new FormUrlEncodedContent(new[]
+            {
+                new KeyValuePair<string, string>("api_key",      ApiKey),
+                new KeyValuePair<string, string>("api_secret",   ApiSecret),
+                new KeyValuePair<string, string>("image_base64", cleanBase64),
+            });
 
-            using var mat = Mat.FromImageData(imageBytes, ImreadModes.Color);
-            if (mat.Empty())
-                return (false, null, "No se pudo decodificar la imagen.");
+            var response = _http.PostAsync(DETECT_URL, form).Result;
+            var json     = response.Content.ReadAsStringAsync().Result;
 
-            using var gray = new Mat();
-            Cv2.CvtColor(mat, gray, ColorConversionCodes.BGR2GRAY);
-            Cv2.EqualizeHist(gray, gray);
+            _logger.LogInformation("[FACE-SEG] Face++ detect response: {j}", json.Length > 200 ? json[..200] : json);
 
-            var cascadePath = ObtenerRutaCascade();
-            if (cascadePath is null)
-                return (false, null, "No se encontró el archivo Haar Cascade.");
+            using var doc = JsonDocument.Parse(json);
+            var faces     = doc.RootElement.GetProperty("faces");
 
-            using var cascade = new CascadeClassifier(cascadePath);
-
-            var caras = cascade.DetectMultiScale(
-                image: gray,
-                scaleFactor: 1.1,
-                minNeighbors: 5,
-                flags: HaarDetectionTypes.ScaleImage,
-                minSize: new OpenCvSharp.Size(80, 80)
-            );
-
-            if (caras.Length == 0)
+            if (faces.GetArrayLength() == 0)
                 return (false, null, "No se detectó ninguna cara en la imagen.");
 
-            var cara = caras.OrderByDescending(r => r.Width * r.Height).First();
+            var face_rect = faces[0].GetProperty("face_rectangle");
+            var top    = face_rect.GetProperty("top").GetInt32();
+            var left   = face_rect.GetProperty("left").GetInt32();
+            var width  = face_rect.GetProperty("width").GetInt32();
+            var height = face_rect.GetProperty("height").GetInt32();
 
-            var padding_x = (int)(cara.Width  * 0.5);
-            var padding_y = (int)(cara.Height * 0.8);
+            var imageBytes   = Convert.FromBase64String(cleanBase64);
+            var resultBase64 = RecortarImagen(imageBytes, left, top, width, height);
 
-            var x = Math.Max(0, cara.X - padding_x);
-            var y = Math.Max(0, cara.Y - padding_y);
-            var w = Math.Min(mat.Width  - x, cara.Width  + padding_x * 2);
-            var h = Math.Min(mat.Height - y, cara.Height + padding_y * 2);
-
-            using var recorte = new Mat(mat, new OpenCvSharp.Rect(x, y, w, h));
-
-            // Fondo blanco con OpenCV puro — sin ImageSharp
-            using var canvas = new Mat(recorte.Size(), MatType.CV_8UC3, new Scalar(255, 255, 255));
-            recorte.CopyTo(canvas);
-
-            var resultBytes  = canvas.ToBytes(".png");
-            var resultBase64 = Convert.ToBase64String(resultBytes);
-
-            _logger.LogInformation("[FACE-SEG] ✅ Cara detectada. Original: {w}x{h}", mat.Width, mat.Height);
+            _logger.LogInformation("[FACE-SEG] ✅ Cara detectada y recortada. Face++ OK.");
             return (true, resultBase64, null);
         }
         catch (Exception ex)
@@ -77,74 +68,66 @@ public class FaceSegmentationService
         }
     }
 
-    private string? ObtenerRutaCascade()
-    {
-        var posibles = new[]
-        {
-            Path.Combine(AppContext.BaseDirectory, CASCADE_NAME),
-            Path.Combine(AppContext.BaseDirectory, "haarcascades", CASCADE_NAME),
-            Path.Combine(Directory.GetCurrentDirectory(), CASCADE_NAME),
-        };
-
-        foreach (var ruta in posibles)
-        {
-            if (File.Exists(ruta))
-            {
-                _logger.LogDebug("[FACE-SEG] Cascade en: {ruta}", ruta);
-                return ruta;
-            }
-        }
-
-        _logger.LogError("[FACE-SEG] ❌ No se encontró {cascade}.", CASCADE_NAME);
-        return null;
-    }
-
     public (bool Match, string? Message) CompararRostros(string base64A, string base64B)
     {
         try
         {
-            var bytesA = Convert.FromBase64String(base64A.Contains(',') ? base64A.Split(',')[1] : base64A);
-            var bytesB = Convert.FromBase64String(base64B.Contains(',') ? base64B.Split(',')[1] : base64B);
+            var cleanA = base64A.Contains(',') ? base64A.Split(',')[1] : base64A;
+            var cleanB = base64B.Contains(',') ? base64B.Split(',')[1] : base64B;
 
-            using var matA = Mat.FromImageData(bytesA, ImreadModes.Grayscale);
-            using var matB = Mat.FromImageData(bytesB, ImreadModes.Grayscale);
+            var form = new FormUrlEncodedContent(new[]
+            {
+                new KeyValuePair<string, string>("api_key",        ApiKey),
+                new KeyValuePair<string, string>("api_secret",     ApiSecret),
+                new KeyValuePair<string, string>("image_base64_1", cleanA),
+                new KeyValuePair<string, string>("image_base64_2", cleanB),
+            });
 
-            if (matA.Empty() || matB.Empty())
-                return (false, "No se pudo decodificar una de las imágenes.");
+            var response = _http.PostAsync(COMPARE_URL, form).Result;
+            var json     = response.Content.ReadAsStringAsync().Result;
 
-            // Redimensionar ambas al mismo tamaño para comparar
-            using var resA = new Mat();
-            using var resB = new Mat();
-            Cv2.Resize(matA, resA, new OpenCvSharp.Size(100, 100));
-            Cv2.Resize(matB, resB, new OpenCvSharp.Size(100, 100));
+            _logger.LogInformation("[FACE-SEG] Face++ compare response: {j}", json.Length > 200 ? json[..200] : json);
 
-            // Calcular histogramas
-            using var histA = new Mat();
-            using var histB = new Mat();
+            using var doc  = JsonDocument.Parse(json);
+            var confidence = doc.RootElement.GetProperty("confidence").GetDouble();
+            var thresholds = doc.RootElement.GetProperty("thresholds");
+            var umbral     = thresholds.GetProperty("1e-3").GetDouble();
 
-            int[] channels = { 0 };
-            int[] histSize = { 256 };
-            Rangef[] ranges = { new Rangef(0, 256) };
+            _logger.LogInformation("[FACE-SEG] Confianza: {c:F2} | Umbral: {u:F2}", confidence, umbral);
 
-            Cv2.CalcHist(new[] { resA }, channels, null, histA, 1, histSize, ranges);
-            Cv2.CalcHist(new[] { resB }, channels, null, histB, 1, histSize, ranges);
-
-            Cv2.Normalize(histA, histA, 0, 1, NormTypes.MinMax);
-            Cv2.Normalize(histB, histB, 0, 1, NormTypes.MinMax);
-
-            // Comparación por correlación — resultado entre -1 y 1, más cercano a 1 = más similar
-            var similitud = Cv2.CompareHist(histA, histB, HistCompMethods.Correl);
-
-            _logger.LogInformation("[FACE-SEG] Similitud entre rostros: {s:F4}", similitud);
-
-            // Umbral de 0.85 — ajustable según pruebas
-            var coincide = similitud >= 0.85;
-            return (coincide, coincide ? null : $"Rostros no coinciden (similitud: {similitud:F2})");
+            var coincide = confidence >= umbral;
+            return (coincide, coincide ? null : $"Rostros no coinciden (confianza: {confidence:F1}%)");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[FACE-SEG] Error al comparar rostros.");
             return (false, $"Error al comparar: {ex.Message}");
         }
+    }
+
+    private static string RecortarImagen(byte[] imageBytes, int left, int top, int width, int height)
+    {
+        using var ms     = new MemoryStream(imageBytes);
+        using var bitmap = SkiaSharp.SKBitmap.Decode(ms);
+
+        var pad_x = (int)(width  * 0.5);
+        var pad_y = (int)(height * 0.8);
+
+        var x = Math.Max(0, left - pad_x);
+        var y = Math.Max(0, top  - pad_y);
+        var w = Math.Min(bitmap.Width  - x, width  + pad_x * 2);
+        var h = Math.Min(bitmap.Height - y, height + pad_y * 2);
+
+        using var canvas_bmp = new SkiaSharp.SKBitmap(w, h);
+        using var canvas     = new SkiaSharp.SKCanvas(canvas_bmp);
+
+        canvas.Clear(SkiaSharp.SKColors.White);
+        canvas.DrawBitmap(bitmap,
+            new SkiaSharp.SKRect(x, y, x + w, y + h),
+            new SkiaSharp.SKRect(0, 0, w, h));
+
+        using var out_ms = new MemoryStream();
+        canvas_bmp.Encode(out_ms, SkiaSharp.SKEncodedImageFormat.Png, 100);
+        return Convert.ToBase64String(out_ms.ToArray());
     }
 }

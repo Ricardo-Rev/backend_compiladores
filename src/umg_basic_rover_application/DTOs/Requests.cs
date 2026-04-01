@@ -83,6 +83,10 @@ public class RegisterRequest
     /// Se incluye en la credencial PDF si se proporciona.
     /// </summary>
     public string? avatar_base64 { get; set; }
+    /// <summary>
+    /// Foto real del usuario para reconocimiento facial (separada del avatar).
+    /// </summary>
+    public string? foto_facial_base64 { get; set; }
 }
 
 
