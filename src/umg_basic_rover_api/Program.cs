@@ -96,7 +96,9 @@ builder.Services.AddCors(options =>
                 "http://localhost:5173",
                 "http://localhost:5174",
                 "http://localhost:8080",
-                "https://frontend-compiladores.vercel.app"
+                "https://frontend-compiladores.vercel.app",
+                "https://nexttechsolutionspc.xyz",           
+                "https://www.nexttechsolutionspc.xyz"       
             )
             .AllowAnyHeader()
             .AllowAnyMethod()
