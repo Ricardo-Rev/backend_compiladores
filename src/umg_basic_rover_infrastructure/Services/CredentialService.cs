@@ -21,30 +21,15 @@ using umg_basic_rover_infrastructure.persistence.context;
 
 namespace umg_basic_rover_infrastructure.Services;
 
-// ============================================================
-//  CredentialService
-//  Genera la credencial PDF firmada y la envía por
-//  Email (SMTP) y WhatsApp (Twilio).
-//
-//  NuGet requeridos (agregar al .csproj de infrastructure):
-//    <PackageReference Include="itext7" Version="8.*" />
-//    <PackageReference Include="QRCoder" Version="1.*" />
-//    <PackageReference Include="Twilio" Version="7.*" />
-//
-//  appsettings.json requerido:
-//    "Smtp": { "Host", "Port", "User", "Password", "From", "FromName" }
-//    "Twilio": { "AccountSid", "AuthToken", "WhatsAppFrom" }
-// ============================================================
-
 public class CredentialService : ICredentialService
 {
-    private readonly rover_db_context  _db;
-    private readonly IConfiguration    _config;
+    private readonly rover_db_context _db;
+    private readonly IConfiguration _config;
     private readonly ILogger<CredentialService> _logger;
 
     public CredentialService(rover_db_context db, IConfiguration config, ILogger<CredentialService> logger)
     {
-        _db     = db;
+        _db = db;
         _config = config;
         _logger = logger;
     }
@@ -61,57 +46,51 @@ public class CredentialService : ICredentialService
         var foto_facial = await _db.autenticacion_facial
             .AsNoTracking()
             .FirstOrDefaultAsync(f => f.usuario_id == usuario_id && f.activo);
+
         var imagen_referencia = foto_facial?.imagen_referencia;
 
-        // 1. Generar QR con el id cifrado
-        var qr_data   = CifrarIdUsuario(usuario_id);
-        var qr_bytes  = GenerarQrBytes(qr_data);
+        var qr_data = CifrarIdUsuario(usuario_id);
+        var qr_bytes = GenerarQrBytes(qr_data);
 
-        // 2. Generar PDF
         var pdf_bytes = GenerarPdf(usuario, qr_bytes, imagen_referencia);
-        var pdf_b64   = Convert.ToBase64String(pdf_bytes);
+        var pdf_b64 = Convert.ToBase64String(pdf_bytes);
 
-        // 3. Firma electrónica (hash SHA-256 del PDF = firma básica avanzada)
         var firma = await FirmarPdfConApiAsync(pdf_bytes);
 
-        // 4. Persistir credencial
         var credencial = new credencial_pdf_entity
         {
-            usuario_id      = usuario_id,
-            archivo_base64  = pdf_b64,
+            usuario_id = usuario_id,
+            archivo_base64 = pdf_b64,
             firma_electronica = firma,
-            canal_envio     = "ambos",
-            estado_envio    = "pendiente",
+            canal_envio = "ambos",
+            estado_envio = "pendiente",
             fecha_generacion = DateTime.Now
         };
+
         _db.credenciales_pdf.Add(credencial);
         await _db.SaveChangesAsync();
 
-        // 5. Guardar QR en BD
         await GuardarQrAsync(usuario_id, qr_data);
-
-        // 6. Registrar métodos de notificación
         await GuardarMetodosNotificacionAsync(usuario_id, usuario.email, usuario.telefono);
 
-        // 7. Envíos
-        bool email_ok = false, whatsapp_ok = false;
+        bool email_ok = false;
+        bool whatsapp_ok = false;
 
-        email_ok     = await EnviarEmailAsync(usuario, pdf_bytes, firma, credencial.id);
-        whatsapp_ok  = await EnviarWhatsAppAsync(usuario, pdf_bytes, credencial.id);
+        email_ok = await EnviarEmailAsync(usuario, pdf_bytes, firma, credencial.id);
+        whatsapp_ok = await EnviarWhatsAppAsync(usuario, pdf_bytes, credencial.id);
 
-        // 8. Actualizar estado
         credencial.estado_envio = (email_ok || whatsapp_ok) ? "enviado" : "error";
-        credencial.fecha_envio  = DateTime.Now;
+        credencial.fecha_envio = DateTime.Now;
         await _db.SaveChangesAsync();
 
         _logger.LogInformation("[CREDENTIAL] ✅ Credencial generada. Email:{e} WA:{w}", email_ok, whatsapp_ok);
 
         return new CredentialResponse
         {
-            credencial_id    = credencial.id,
-            estado_envio     = credencial.estado_envio,
-            archivo_base64   = pdf_b64,
-            email_enviado    = email_ok,
+            credencial_id = credencial.id,
+            estado_envio = credencial.estado_envio,
+            archivo_base64 = pdf_b64,
+            email_enviado = email_ok,
             whatsapp_enviado = whatsapp_ok,
             fecha_generacion = credencial.fecha_generacion
         };
@@ -119,7 +98,6 @@ public class CredentialService : ICredentialService
 
     public async Task<CredentialResponse> ReenviarAsync(int usuario_id)
     {
-        // Busca la última credencial generada y la reenvía
         var ultima = await _db.credenciales_pdf
             .Where(c => c.usuario_id == usuario_id)
             .OrderByDescending(c => c.fecha_generacion)
@@ -128,320 +106,302 @@ public class CredentialService : ICredentialService
         if (ultima == null)
             return await GenerarYEnviarAsync(usuario_id);
 
-        var usuario   = await _db.usuarios.AsNoTracking().FirstAsync(u => u.id == usuario_id);
+        var usuario = await _db.usuarios.AsNoTracking().FirstAsync(u => u.id == usuario_id);
         var pdf_bytes = Convert.FromBase64String(ultima.archivo_base64 ?? string.Empty);
 
-        bool email_ok    = await EnviarEmailAsync(usuario, pdf_bytes, ultima.firma_electronica ?? "", ultima.id);
+        bool email_ok = await EnviarEmailAsync(usuario, pdf_bytes, ultima.firma_electronica ?? "", ultima.id);
         bool whatsapp_ok = await EnviarWhatsAppAsync(usuario, pdf_bytes, ultima.id);
 
         ultima.estado_envio = (email_ok || whatsapp_ok) ? "enviado" : "error";
-        ultima.fecha_envio  = DateTime.Now;
+        ultima.fecha_envio = DateTime.Now;
         await _db.SaveChangesAsync();
 
         return new CredentialResponse
         {
-            credencial_id    = ultima.id,
-            estado_envio     = ultima.estado_envio,
-            email_enviado    = email_ok,
+            credencial_id = ultima.id,
+            estado_envio = ultima.estado_envio,
+            email_enviado = email_ok,
             whatsapp_enviado = whatsapp_ok,
             fecha_generacion = ultima.fecha_generacion
         };
     }
 
-    // ── GENERACIÓN DEL PDF ───────────────────────────────────
-
-// ============================================================
-//  INSTRUCCIONES DE REEMPLAZO
-//
-//  1. USINGS — Verificá que al inicio de CredentialService.cs
-//     estén estos (los que ya tenés son suficientes, solo revisá):
-//       using iText.Kernel.Pdf;
-//       using iText.Layout;
-//       using iText.Layout.Element;
-//       using iText.Layout.Properties;
-//       using iText.Kernel.Colors;
-//       using iText.Kernel.Font;
-//       using iText.IO.Font.Constants;
-//       using iText.IO.Image;
-//     NO necesitás agregar nada nuevo.
-//
-//  2. REEMPLAZÁ el método GenerarPdf() completo (desde
-//     "private byte[] GenerarPdf..." hasta su llave de cierre "}")
-//     con el método de abajo.
-//
-//  3. AGREGÁ el método DibujarCampo() justo después de GenerarPdf()
-//     y antes de AgregarFila(). Es un método nuevo privado.
-//
-//  4. AgregarFila() NO se toca — puede quedarse aunque ya no
-//     se llame desde GenerarPdf, no rompe nada.
-//
-//  5. El recurso embebido debe estar en:
-//       Resources/fondo_credencial.jpeg
-//     y en el .csproj:
-//       <EmbeddedResource Include="Resources\fondo_credencial.jpeg" />
-// ============================================================
-
+    // ─────────────────────────────────────────────────────────
+    // GENERACIÓN DEL PDF
+    // Usa la imagen plantilla como fondo y solo superpone:
+    // 1) Foto tomada con cámara
+    // 2) Avatar
+    // 3) QR
+    // 4) Datos del usuario
+    // ─────────────────────────────────────────────────────────
     private byte[] GenerarPdf(user_entity usuario, byte[] qr_bytes, string? foto_facial_base64 = null)
     {
-        using var ms     = new MemoryStream();
+        using var ms = new MemoryStream();
         using var writer = new PdfWriter(ms);
-        using var pdf    = new PdfDocument(writer);
-        using var doc    = new Document(pdf, PageSize.A4);
+        using var pdf = new PdfDocument(writer);
+        using var doc = new Document(pdf, PageSize.A4);
         doc.SetMargins(0, 0, 0, 0);
 
-        // A4 en puntos (iText usa puntos, origen = esquina inferior izquierda)
         const float W = 595f;
         const float H = 842f;
 
-        // ── FUENTES ─────────────────────────────────────────────
-        var font_bold   = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
-        var font_normal = PdfFontFactory.CreateFont(StandardFonts.HELVETICA);
-        var font_mono   = PdfFontFactory.CreateFont(StandardFonts.COURIER);
+        var fontBold = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
+        var fontNormal = PdfFontFactory.CreateFont(StandardFonts.HELVETICA);
+        var fontMono = PdfFontFactory.CreateFont(StandardFonts.COURIER);
 
-        // ── COLORES ──────────────────────────────────────────────
-        var cyan    = new DeviceRgb(6,   182, 212);
-        var blanco  = new DeviceRgb(255, 255, 255);
-        var purpura = new DeviceRgb(109,  40, 217);
-        var gris    = new DeviceRgb(170, 170, 170);
+        var blanco = new DeviceRgb(245, 245, 245);
+        var grisClaro = new DeviceRgb(220, 220, 220);
+        var grisFirma = new DeviceRgb(185, 185, 185);
 
-        // ── IMAGEN DE FONDO ──────────────────────────────────────
-        // Se agrega PRIMERO — queda como capa base del PDF
-        try
-        {
-            var assembly = System.Reflection.Assembly.GetExecutingAssembly();
-            var resource = assembly.GetManifestResourceNames()
-                .FirstOrDefault(n => n.EndsWith("fondo_credencial.jpeg",
-                    StringComparison.OrdinalIgnoreCase));
+        CargarFondo(doc, W, H);
 
-            if (resource != null)
-            {
-                using var res_stream = assembly.GetManifestResourceStream(resource)!;
-                using var buf        = new MemoryStream();
-                res_stream.CopyTo(buf);
+        // FOTO REAL TOMADA CON CÁMARA (recuadro superior izquierdo)
+        DibujarImagenBase64(doc, foto_facial_base64, 48f, 556f, 119f, 142f);
 
-                doc.Add(new Image(ImageDataFactory.Create(buf.ToArray()))
-                    .SetFixedPosition(0f, 0f)
-                    .SetWidth(W)
-                    .SetHeight(H));
-            }
-            else
-            {
-                _logger.LogWarning("[CREDENTIAL] Recurso fondo_credencial.jpeg no encontrado en el assembly.");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("[CREDENTIAL] Fondo no cargado: {msg}", ex.Message);
-            // El PDF se genera igual, solo sin imagen de fondo
-        }
+        // AVATAR (recuadro inferior derecho)
+        DibujarAvatar(doc, usuario.avatar_base64, usuario.usuario, 383f, 295f, 122f, 142f, fontBold, blanco);
 
-        // ── COORDENADAS CALCULADAS MATEMÁTICAMENTE ───────────────
-        // Imagen original: 1024x1536 px -> A4: 595x842 pts
-        // Scale X=0.5811 | Scale Y=0.5482 | iText origen=esquina inferior izq
-
-        // ── ENCABEZADO ───────────────────────────────────────────
-        doc.Add(new Paragraph("UMG  ++")
-            .SetFont(font_bold).SetFontSize(26f)
-            .SetFontColor(cyan)
-            .SetFixedPosition(90f, 760f, 200f));
-
-        doc.Add(new Paragraph("Universidad Mariano Galvez - Ingenieria en Sistemas 2026")
-            .SetFont(font_normal).SetFontSize(8.5f)
-            .SetFontColor(blanco)
-            .SetFixedPosition(90f, 745f, 350f));
-
-        doc.Add(new Paragraph("PILOTO")
-            .SetFont(font_bold).SetFontSize(10f)
-            .SetFontColor(blanco)
-            .SetFixedPosition(488f, 768f, 80f));
-
-        // ── SUBTÍTULO ────────────────────────────────────────────
-        doc.Add(new Paragraph("CREDENCIAL DE ACCESO — BASIC ROVER 2.0")
-            .SetFont(font_bold).SetFontSize(11f)
-            .SetFontColor(blanco)
-            .SetTextAlignment(TextAlignment.CENTER)
-            .SetFixedPosition(75f, 720f, W - 110f));
-
-        // ── AVATAR (izquierda, x=58, y=593, w=110, h=126) ────────
-        const float AVATAR_X = 58f;
-        const float AVATAR_Y = 593f;
-        const float AVATAR_W = 110f;
-        const float AVATAR_H = 126f;
-
-        if (!string.IsNullOrEmpty(usuario.avatar_base64))
-        {
-            try
-            {
-                var raw = usuario.avatar_base64.Contains(",")
-                    ? usuario.avatar_base64.Split(',')[1]
-                    : usuario.avatar_base64;
-                var img_bytes = Convert.FromBase64String(raw);
-
-                byte[] final_bytes;
-                if (usuario.avatar_base64.Contains("image/svg") ||
-                    usuario.avatar_base64.TrimStart().StartsWith("<svg") ||
-                    (img_bytes.Length > 4 && img_bytes[0] == '<'))
-                {
-                    using var svg_stream = new MemoryStream(img_bytes);
-                    var svg = new Svg.Skia.SKSvg();
-                    svg.Load(svg_stream);
-                    using var bmp = new SkiaSharp.SKBitmap(200, 200);
-                    using var csk = new SkiaSharp.SKCanvas(bmp);
-                    csk.Clear(SkiaSharp.SKColors.Transparent);
-                    var sx  = 200f / svg.Picture!.CullRect.Width;
-                    var sy  = 200f / svg.Picture.CullRect.Height;
-                    var mtx = SkiaSharp.SKMatrix.CreateScale(sx, sy);
-                    csk.DrawPicture(svg.Picture, ref mtx);
-                    using var ps = new MemoryStream();
-                    bmp.Encode(ps, SkiaSharp.SKEncodedImageFormat.Png, 100);
-                    final_bytes = ps.ToArray();
-                }
-                else
-                {
-                    final_bytes = img_bytes;
-                }
-
-                doc.Add(new Image(ImageDataFactory.Create(final_bytes))
-                    .SetFixedPosition(AVATAR_X, AVATAR_Y)
-                    .SetWidth(AVATAR_W)
-                    .SetHeight(AVATAR_H));
-            }
-            catch
-            {
-                doc.Add(new Paragraph(usuario.usuario[..Math.Min(2, usuario.usuario.Length)].ToUpper())
-                    .SetFont(font_bold).SetFontSize(26f)
-                    .SetFontColor(cyan)
-                    .SetFixedPosition(AVATAR_X + 30f, AVATAR_Y + 45f, AVATAR_W));
-            }
-        }
-        else
-        {
-            doc.Add(new Paragraph(usuario.usuario[..Math.Min(2, usuario.usuario.Length)].ToUpper())
-                .SetFont(font_bold).SetFontSize(26f)
-                .SetFontColor(cyan)
-                .SetFixedPosition(AVATAR_X + 30f, AVATAR_Y + 45f, AVATAR_W));
-        }
-
-        // ── NOMBRE Y USUARIO (derecha del avatar) ────────────────
-        // x=192, calculado de la imagen
-        doc.Add(new Paragraph("NOMBRE COMPLETO")
-            .SetFont(font_bold).SetFontSize(8.5f)
-            .SetFontColor(cyan)
-            .SetFixedPosition(192f, 698f, 255f));
-
-        doc.Add(new Paragraph(usuario.nombre_completo ?? usuario.usuario)
-            .SetFont(font_bold).SetFontSize(16f)
-            .SetFontColor(blanco)
-            .SetFixedPosition(192f, 675f, 255f));
-
-        doc.Add(new Paragraph("USUARIO")
-            .SetFont(font_bold).SetFontSize(8.5f)
-            .SetFontColor(cyan)
-            .SetFixedPosition(192f, 649f, 255f));
-
-        doc.Add(new Paragraph(usuario.usuario)
-            .SetFont(font_normal).SetFontSize(14f)
-            .SetFontColor(blanco)
-            .SetFixedPosition(192f, 627f, 255f));
-
-        // ── QR (derecha, x=459, y=618, w=108, h=101) ─────────────
+        // QR (recuadro superior derecho)
         doc.Add(new Image(ImageDataFactory.Create(qr_bytes))
-            .SetFixedPosition(459f, 618f)
-            .SetWidth(108f)
-            .SetHeight(101f));
+            .SetFixedPosition(425f, 580f)
+            .SetWidth(112f)
+            .SetHeight(126f));
 
-        doc.Add(new Paragraph("Código QR\nde acceso")
-            .SetFont(font_normal).SetFontSize(7.5f)
+        // NOMBRE COMPLETO (solo valor, el label ya está en la plantilla)
+        doc.Add(new Paragraph(usuario.nombre_completo ?? usuario.usuario)
+            .SetFont(fontBold)
+            .SetFontSize(13f)
             .SetFontColor(blanco)
-            .SetTextAlignment(TextAlignment.CENTER)
-            .SetFixedPosition(459f, 600f, 108f));
+            .SetFixedPosition(205f, 635f, 205f));
 
-        // ── FOTO FACIAL (si existe, debajo del QR) ───────────────
-        if (!string.IsNullOrEmpty(foto_facial_base64))
-        {
-            try
-            {
-                var foto_bytes = Convert.FromBase64String(
-                    foto_facial_base64.Contains(",")
-                        ? foto_facial_base64.Split(',')[1]
-                        : foto_facial_base64);
-                doc.Add(new Image(ImageDataFactory.Create(foto_bytes))
-                    .SetFixedPosition(459f, 490f)
-                    .SetWidth(108f)
-                    .SetHeight(101f));
-            }
-            catch { /* continúa sin foto facial */ }
-        }
+        // USUARIO SUPERIOR (solo valor, el label ya está en la plantilla)
+        doc.Add(new Paragraph(usuario.usuario ?? "")
+            .SetFont(fontBold)
+            .SetFontSize(12f)
+            .SetFontColor(blanco)
+            .SetFixedPosition(205f, 575f, 205f));
 
-        // ── CAMPOS INFERIORES ────────────────────────────────────
-        // Coordenadas calculadas de la imagen: x=58, ancho=340
-        // Y calculado: 533, 457, 380, 303
-        const float CAMPO_X = 58f;
-        const float CAMPO_W = 340f;
+        // CAMPOS INFERIORES (solo valores, los labels ya están en la plantilla)
 
-        DibujarCampo(doc, "USUARIO",
-            usuario.email ?? "",
-            CAMPO_X, 533f, CAMPO_W, font_bold, font_normal, cyan, blanco, 9f, 13f);
+        // USUARIO
+        doc.Add(new Paragraph(usuario.usuario ?? "")
+            .SetFont(fontBold)
+            .SetFontSize(11.5f)
+            .SetFontColor(blanco)
+            .SetFixedPosition(52f, 490f, 385f));
 
-        DibujarCampo(doc, "CORREO ELECTRÓNICO",
-            usuario.email ?? "",
-            CAMPO_X, 457f, CAMPO_W, font_bold, font_normal, cyan, blanco, 9f, 13f);
+        // CORREO ELECTRÓNICO
+        doc.Add(new Paragraph(usuario.email ?? "")
+            .SetFont(fontBold)
+            .SetFontSize(11.3f)
+            .SetFontColor(blanco)
+            .SetFixedPosition(52f, 421f, 300f));
 
-        DibujarCampo(doc, "WHATSAPP",
-            usuario.telefono ?? "",
-            CAMPO_X, 380f, CAMPO_W, font_bold, font_normal, cyan, blanco, 9f, 13f);
+        // WHATSAPP
+        doc.Add(new Paragraph(usuario.telefono ?? "")
+            .SetFont(fontBold)
+            .SetFontSize(11.5f)
+            .SetFontColor(blanco)
+            .SetFixedPosition(52f, 352f, 300f));
 
+        // EMISIÓN - VIGENCIA
         var vigencia = $"{usuario.fecha_creacion:dd/MM/yyyy} - {usuario.fecha_creacion.AddYears(1):dd/MM/yyyy}";
-        DibujarCampo(doc, "EMISIÓN - VIGENCIA",
-            vigencia,
-            CAMPO_X, 303f, CAMPO_W, font_bold, font_normal, cyan, blanco, 9f, 13f);
-
-        // ── FIRMA ELECTRÓNICA (y=243, calculado) ─────────────────
-        doc.Add(new Paragraph("FIRMA ELECTRÓNICA AVANZADA")
-            .SetFont(font_bold).SetFontSize(10f)
-            .SetFontColor(purpura)
-            .SetFixedPosition(CAMPO_X, 243f, CAMPO_W + 140f));
-
-        var hash_firma = Convert.ToHexString(
-            System.Security.Cryptography.SHA256.HashData(
-                System.Text.Encoding.UTF8.GetBytes(
-                    $"{usuario.usuario}{usuario.email}{usuario.fecha_creacion:yyyyMMddHHmmss}")));
-
-        doc.Add(new Paragraph(hash_firma)
-            .SetFont(font_mono).SetFontSize(7.5f)
+        doc.Add(new Paragraph(vigencia)
+            .SetFont(fontBold)
+            .SetFontSize(11.2f)
             .SetFontColor(blanco)
-            .SetFixedPosition(CAMPO_X, 227f, CAMPO_W + 140f));
+            .SetFixedPosition(52f, 283f, 320f));
+
+        // FIRMA / HASH
+        var hashFirma = Convert.ToHexString(
+            SHA256.HashData(
+                Encoding.UTF8.GetBytes($"{usuario.usuario}{usuario.email}{usuario.fecha_creacion:yyyyMMddHHmmss}")));
+
+        doc.Add(new Paragraph(hashFirma)
+            .SetFont(fontMono)
+            .SetFontSize(6.8f)
+            .SetFontColor(grisClaro)
+            .SetFixedPosition(50f, 175f, 430f));
 
         doc.Add(new Paragraph("SHA-256 · AES-256 · UMG Basic Rover 2.0-2026")
-            .SetFont(font_normal).SetFontSize(8.5f)
-            .SetFontColor(gris)
-            .SetFixedPosition(CAMPO_X, 211f, CAMPO_W + 140f));
-
-        // ── SELLO VERIFICADO (x=447, y=60, calculado) ────────────
-        doc.Add(new Paragraph("VERIFICADO")
-            .SetFont(font_bold).SetFontSize(14f)
-            .SetFontColor(blanco)
-            .SetFixedPosition(447f, 60f, 130f));
+            .SetFont(fontNormal)
+            .SetFontSize(8f)
+            .SetFontColor(grisFirma)
+            .SetFixedPosition(50f, 157f, 320f));
 
         doc.Close();
         return ms.ToArray();
     }
 
-    // ── HELPER NUEVO: agrega campo con label + valor superpuestos ─
-    // Pegá este método DESPUÉS de GenerarPdf() y ANTES de AgregarFila()
+    // ─────────────────────────────────────────────────────────
+    // HELPERS PDF
+    // ─────────────────────────────────────────────────────────
+    private void CargarFondo(Document doc, float width, float height)
+    {
+        try
+        {
+            var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+            var resource = assembly.GetManifestResourceNames()
+                .FirstOrDefault(n => n.EndsWith("fondo_credencial.jpeg", StringComparison.OrdinalIgnoreCase));
+
+            if (resource == null)
+            {
+                _logger.LogWarning("[CREDENTIAL] Recurso fondo_credencial.jpeg no encontrado en el assembly.");
+                return;
+            }
+
+            using var resStream = assembly.GetManifestResourceStream(resource)!;
+            using var buffer = new MemoryStream();
+            resStream.CopyTo(buffer);
+
+            doc.Add(new Image(ImageDataFactory.Create(buffer.ToArray()))
+                .SetFixedPosition(0f, 0f)
+                .SetWidth(width)
+                .SetHeight(height));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("[CREDENTIAL] Fondo no cargado: {msg}", ex.Message);
+        }
+    }
+
+    private void DibujarImagenBase64(Document doc, string? base64, float x, float y, float w, float h)
+    {
+        try
+        {
+            var bytes = DecodificarBase64Image(base64);
+            if (bytes == null || bytes.Length == 0)
+                return;
+
+            doc.Add(new Image(ImageDataFactory.Create(bytes))
+                .SetFixedPosition(x, y)
+                .SetWidth(w)
+                .SetHeight(h));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("[CREDENTIAL] No se pudo dibujar imagen base64: {msg}", ex.Message);
+        }
+    }
+
+    private void DibujarAvatar(
+        Document doc,
+        string? avatarBase64,
+        string? usuario,
+        float x,
+        float y,
+        float w,
+        float h,
+        PdfFont fontBold,
+        DeviceRgb colorTexto)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(avatarBase64))
+            {
+                DibujarIniciales(doc, usuario, x, y, w, h, fontBold, colorTexto);
+                return;
+            }
+
+            var raw = avatarBase64.Contains(",")
+                ? avatarBase64.Split(',')[1]
+                : avatarBase64;
+
+            var imgBytes = Convert.FromBase64String(raw);
+            byte[] finalBytes;
+
+            if (avatarBase64.Contains("image/svg", StringComparison.OrdinalIgnoreCase) ||
+                avatarBase64.TrimStart().StartsWith("<svg", StringComparison.OrdinalIgnoreCase) ||
+                (imgBytes.Length > 4 && imgBytes[0] == '<'))
+            {
+                using var svgStream = new MemoryStream(imgBytes);
+                var svg = new Svg.Skia.SKSvg();
+                svg.Load(svgStream);
+
+                using var bmp = new SkiaSharp.SKBitmap(240, 240);
+                using var canvas = new SkiaSharp.SKCanvas(bmp);
+                canvas.Clear(SkiaSharp.SKColors.Transparent);
+
+                if (svg.Picture == null)
+                {
+                    DibujarIniciales(doc, usuario, x, y, w, h, fontBold, colorTexto);
+                    return;
+                }
+
+                var sx = 240f / svg.Picture.CullRect.Width;
+                var sy = 240f / svg.Picture.CullRect.Height;
+                var matrix = SkiaSharp.SKMatrix.CreateScale(sx, sy);
+                canvas.DrawPicture(svg.Picture, ref matrix);
+
+                using var pngStream = new MemoryStream();
+                bmp.Encode(pngStream, SkiaSharp.SKEncodedImageFormat.Png, 100);
+                finalBytes = pngStream.ToArray();
+            }
+            else
+            {
+                finalBytes = imgBytes;
+            }
+
+            doc.Add(new Image(ImageDataFactory.Create(finalBytes))
+                .SetFixedPosition(x, y)
+                .SetWidth(w)
+                .SetHeight(h));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("[CREDENTIAL] No se pudo dibujar avatar: {msg}", ex.Message);
+            DibujarIniciales(doc, usuario, x, y, w, h, fontBold, colorTexto);
+        }
+    }
+
+    private static byte[]? DecodificarBase64Image(string? base64)
+    {
+        if (string.IsNullOrWhiteSpace(base64))
+            return null;
+
+        var raw = base64.Contains(",")
+            ? base64.Split(',')[1]
+            : base64;
+
+        return Convert.FromBase64String(raw);
+    }
+
+    private static void DibujarIniciales(
+        Document doc,
+        string? usuario,
+        float x,
+        float y,
+        float w,
+        float h,
+        PdfFont fontBold,
+        DeviceRgb colorTexto)
+    {
+        var texto = string.IsNullOrWhiteSpace(usuario)
+            ? "US"
+            : usuario[..Math.Min(2, usuario.Length)].ToUpper();
+
+        doc.Add(new Paragraph(texto)
+            .SetFont(fontBold)
+            .SetFontSize(26f)
+            .SetFontColor(colorTexto)
+            .SetTextAlignment(TextAlignment.CENTER)
+            .SetFixedPosition(x, y + (h / 2f) - 12f, w));
+    }
+
+    // Se deja por compatibilidad, aunque ya no se usa en la plantilla nueva
     private static void DibujarCampo(
-        Document  doc,
-        string    label,
-        string    valor,
-        float     x,
-        float     y,
-        float     w,
-        PdfFont   font_bold,
-        PdfFont   font_normal,
+        Document doc,
+        string label,
+        string valor,
+        float x,
+        float y,
+        float w,
+        PdfFont font_bold,
+        PdfFont font_normal,
         DeviceRgb color_label,
         DeviceRgb color_valor,
-        float     label_size,
-        float     valor_size)
+        float label_size,
+        float valor_size)
     {
         doc.Add(new Paragraph(label)
             .SetFont(font_bold)
@@ -455,6 +415,7 @@ public class CredentialService : ICredentialService
             .SetFontColor(color_valor)
             .SetFixedPosition(x, y, w));
     }
+
     private static void AgregarFila(Table t, string label, string valor,
         PdfFont font_bold, PdfFont font_normal, DeviceRgb color_header)
     {
@@ -467,46 +428,53 @@ public class CredentialService : ICredentialService
             .Add(new Paragraph(valor).SetFont(font_normal).SetFontSize(10)));
     }
 
-    // ── QR ───────────────────────────────────────────────────
-
+    // ─────────────────────────────────────────────────────────
+    // QR
+    // ─────────────────────────────────────────────────────────
     private static byte[] GenerarQrBytes(string data)
     {
         using var qr_generator = new QRCodeGenerator();
-        var qr_data            = qr_generator.CreateQrCode(data, QRCodeGenerator.ECCLevel.Q);
-        var qr_code            = new PngByteQRCode(qr_data);
+        var qr_data = qr_generator.CreateQrCode(data, QRCodeGenerator.ECCLevel.Q);
+        var qr_code = new PngByteQRCode(qr_data);
         return qr_code.GetGraphic(10);
     }
 
     private static string CifrarIdUsuario(int usuario_id)
     {
-        var data  = Encoding.UTF8.GetBytes($"UMG_ROVER_{usuario_id}_{DateTime.Now:yyyyMMdd}");
-        var hash  = SHA256.HashData(data);
+        var data = Encoding.UTF8.GetBytes($"UMG_ROVER_{usuario_id}_{DateTime.Now:yyyyMMdd}");
+        var hash = SHA256.HashData(data);
         return $"ROVER-{usuario_id}-{Convert.ToHexString(hash)[..16]}";
     }
 
     private static string ComputarFirma(byte[] contenido, int usuario_id)
     {
-        var salt    = Encoding.UTF8.GetBytes($"UMG_FIRMA_{usuario_id}");
+        var salt = Encoding.UTF8.GetBytes($"UMG_FIRMA_{usuario_id}");
         var payload = contenido.Concat(salt).ToArray();
         return Convert.ToHexString(SHA256.HashData(payload));
     }
 
-    // ── PERSISTENCIA AUX ─────────────────────────────────────
-
+    // ─────────────────────────────────────────────────────────
+    // PERSISTENCIA AUX
+    // ─────────────────────────────────────────────────────────
     private async Task GuardarQrAsync(int usuario_id, string qr_data)
     {
         var existente = await _db.codigos_qr
             .FirstOrDefaultAsync(q => q.usuario_id == usuario_id && q.activo);
-        if (existente != null) { existente.activo = false; }
+
+        if (existente != null)
+        {
+            existente.activo = false;
+        }
 
         _db.codigos_qr.Add(new codigo_qr_entity
         {
-            usuario_id     = usuario_id,
-            codigo_qr      = qr_data,
-            qr_hash        = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(qr_data))),
-            activo         = true,
+            usuario_id = usuario_id,
+            codigo_qr = qr_data,
+            qr_hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(qr_data))),
+            activo = true,
             fecha_creacion = DateTime.Now
         });
+
         await _db.SaveChangesAsync();
     }
 
@@ -519,43 +487,53 @@ public class CredentialService : ICredentialService
         if (!existentes.Any(m => m.tipo_notificacion == "email"))
         {
             _db.metodos_notificacion.Add(new metodo_notificacion_entity
-                { usuario_id = usuario_id, tipo_notificacion = "email", destino = email });
+            {
+                usuario_id = usuario_id,
+                tipo_notificacion = "email",
+                destino = email
+            });
         }
 
         if (!existentes.Any(m => m.tipo_notificacion == "whatsapp"))
         {
             _db.metodos_notificacion.Add(new metodo_notificacion_entity
-                { usuario_id = usuario_id, tipo_notificacion = "whatsapp", destino = telefono });
+            {
+                usuario_id = usuario_id,
+                tipo_notificacion = "whatsapp",
+                destino = telefono
+            });
         }
 
         await _db.SaveChangesAsync();
     }
 
-    // ── EMAIL (SMTP) ─────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────
+    // EMAIL (SENDGRID)
+    // ─────────────────────────────────────────────────────────
     private async Task<bool> EnviarEmailAsync(user_entity usuario, byte[] pdf_bytes, string firma, int credencial_id)
     {
         try
         {
-            var api_key   = _config["SendGrid:ApiKey"]   ?? throw new InvalidOperationException("SendGrid:ApiKey no configurado.");
-            var from_email = _config["SendGrid:From"]    ?? throw new InvalidOperationException("SendGrid:From no configurado.");
-            var from_name  = _config["SendGrid:FromName"] ?? "UMG Basic Rover 2.0";
+            var api_key = _config["SendGrid:ApiKey"] ?? throw new InvalidOperationException("SendGrid:ApiKey no configurado.");
+            var from_email = _config["SendGrid:From"] ?? throw new InvalidOperationException("SendGrid:From no configurado.");
+            var from_name = _config["SendGrid:FromName"] ?? "UMG Basic Rover 2.0";
 
-            var client  = new SendGrid.SendGridClient(api_key);
-            var from    = new SendGrid.Helpers.Mail.EmailAddress(from_email, from_name);
-            var to      = new SendGrid.Helpers.Mail.EmailAddress(usuario.email, usuario.nombre_completo);
+            var client = new SendGrid.SendGridClient(api_key);
+            var from = new SendGrid.Helpers.Mail.EmailAddress(from_email, from_name);
+            var to = new SendGrid.Helpers.Mail.EmailAddress(usuario.email, usuario.nombre_completo);
             var subject = $"🏁 Tu Credencial de Acceso — UMG Basic Rover 2.0 | {usuario.usuario}";
 
             var html_body = $@"
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset='UTF-8'></head>
-    <body style='font-family: Arial, sans-serif; background:#f5f5f5; margin:0; padding:20px;'>
-    <div style='max-width:600px; margin:auto; background:white; border-radius:8px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.1);'>
-        <div style='background:#003087; padding:24px; text-align:center;'>
+<!DOCTYPE html>
+<html>
+<head><meta charset='UTF-8'></head>
+<body style='font-family: Arial, sans-serif; background:#f5f5f5; margin:0; padding:20px;'>
+<div style='max-width:600px; margin:auto; background:white; border-radius:8px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.1);'>
+    <div style='background:#003087; padding:24px; text-align:center;'>
         <h1 style='color:white; margin:0; font-size:22px;'>🏁 UMG Basic Rover 2.0</h1>
         <p style='color:#FFD700; margin:6px 0 0;'>Universidad Mariano Gálvez de Guatemala</p>
-        </div>
-        <div style='padding:28px;'>
+    </div>
+    <div style='padding:28px;'>
         <h2 style='color:#003087;'>¡Bienvenido, <strong>{usuario.usuario}</strong>!</h2>
         <p style='color:#333; font-size:15px;'>Tu registro en la plataforma <strong>UMG Basic Rover 2.0</strong> fue exitoso.</p>
         <p style='color:#333; font-size:15px;'>Adjunto encontrarás tu <strong>credencial de acceso en formato PDF</strong>, firmada electrónicamente con tu información y código QR de acceso.</p>
@@ -564,22 +542,21 @@ public class CredentialService : ICredentialService
             <code style='font-size:11px; word-break:break-all;'>{(firma.Length > 32 ? firma[..32] + "..." : firma)}</code></p>
         </div>
         <p style='color:#555; font-size:13px;'>Usa tu nickname <strong>{usuario.usuario}</strong> y contraseña para ingresar a la plataforma.</p>
-        </div>
-        <div style='background:#003087; padding:16px; text-align:center;'>
-        <p style='color:#aaa; font-size:12px; margin:0;'>UMG Ingeniería en Sistemas — Compiladores 2026</p>
-        </div>
     </div>
-    </body>
-    </html>";
+    <div style='background:#003087; padding:16px; text-align:center;'>
+        <p style='color:#aaa; font-size:12px; margin:0;'>UMG Ingeniería en Sistemas — Compiladores 2026</p>
+    </div>
+</div>
+</body>
+</html>";
 
             var msg = SendGrid.Helpers.Mail.MailHelper.CreateSingleEmail(from, to, subject, "", html_body);
 
-            // Adjuntar PDF
             var pdf_b64 = Convert.ToBase64String(pdf_bytes);
             msg.AddAttachment($"credencial_{usuario.usuario}.pdf", pdf_b64, "application/pdf");
 
             var response = await client.SendEmailAsync(msg);
-            var enviado  = (int)response.StatusCode >= 200 && (int)response.StatusCode < 300;
+            var enviado = (int)response.StatusCode >= 200 && (int)response.StatusCode < 300;
 
             await RegistrarNotificacionAsync(usuario.id, "credencial_pdf", "email",
                 $"Credencial PDF — {usuario.usuario}", enviado ? "enviado" : "error", credencial_id);
@@ -595,15 +572,17 @@ public class CredentialService : ICredentialService
             return false;
         }
     }
-    // ── WHATSAPP (TWILIO) ────────────────────────────────────
 
+    // ─────────────────────────────────────────────────────────
+    // WHATSAPP (TWILIO)
+    // ─────────────────────────────────────────────────────────
     private async Task<bool> EnviarWhatsAppAsync(user_entity usuario, byte[] pdf_bytes, int credencial_id)
     {
         try
         {
             var account_sid = _config["Twilio:AccountSid"];
-            var auth_token  = _config["Twilio:AuthToken"];
-            var from_wa     = _config["Twilio:WhatsAppFrom"] ?? "whatsapp:+14155238886";
+            var auth_token = _config["Twilio:AuthToken"];
+            var from_wa = _config["Twilio:WhatsAppFrom"] ?? "whatsapp:+14155238886";
 
             if (string.IsNullOrEmpty(account_sid) || string.IsNullOrEmpty(auth_token))
             {
@@ -618,7 +597,7 @@ public class CredentialService : ICredentialService
             var message = await Twilio.Rest.Api.V2010.Account.MessageResource.CreateAsync(
                 body: $"🏁 *UMG Basic Rover 2.0*\n\n¡Hola *{usuario.usuario}*! Tu registro fue exitoso.\n\nTu credencial de acceso ha sido generada. La recibirás también en tu correo *{usuario.email}* con el PDF adjunto.\n\n✅ _Universidad Mariano Gálvez — Ingeniería en Sistemas 2026_",
                 from: new Twilio.Types.PhoneNumber(from_wa),
-                to:   new Twilio.Types.PhoneNumber($"whatsapp:{telefono_wa}")
+                to: new Twilio.Types.PhoneNumber($"whatsapp:{telefono_wa}")
             );
 
             var enviado = message.Status != Twilio.Rest.Api.V2010.Account.MessageResource.StatusEnum.Failed;
@@ -638,21 +617,23 @@ public class CredentialService : ICredentialService
         }
     }
 
-    // ── HISTORIAL NOTIFICACIONES ─────────────────────────────
-
+    // ─────────────────────────────────────────────────────────
+    // HISTORIAL NOTIFICACIONES
+    // ─────────────────────────────────────────────────────────
     private async Task RegistrarNotificacionAsync(int usuario_id, string tipo, string canal,
         string asunto, string estado, int? referencia_id = null)
     {
         _db.historial_notificaciones.Add(new historial_notificacion_entity
         {
-            usuario_id    = usuario_id,
-            tipo          = tipo,
-            canal         = canal,
-            asunto        = asunto,
-            estado        = estado,
+            usuario_id = usuario_id,
+            tipo = tipo,
+            canal = canal,
+            asunto = asunto,
+            estado = estado,
             referencia_id = referencia_id,
-            fecha_envio   = DateTime.Now
+            fecha_envio = DateTime.Now
         });
+
         await _db.SaveChangesAsync();
     }
 
@@ -662,10 +643,10 @@ public class CredentialService : ICredentialService
         {
             var base_url = _config["FirmaElectronica:BaseUrl"]
                 ?? throw new InvalidOperationException("FirmaElectronica:BaseUrl no configurado.");
-            var api_key  = _config["FirmaElectronica:ApiKey"]
+            var api_key = _config["FirmaElectronica:ApiKey"]
                 ?? throw new InvalidOperationException("FirmaElectronica:ApiKey no configurado.");
 
-            using var http    = new HttpClient();
+            using var http = new HttpClient();
             using var content = new MultipartFormDataContent();
 
             http.DefaultRequestHeaders.Add("X-Api-Key", api_key);
@@ -683,8 +664,6 @@ public class CredentialService : ICredentialService
                 return string.Empty;
             }
 
-            // La firma ahora se guarda internamente en la API de firma
-            // El campo firma_electronica solo guarda confirmación
             _logger.LogInformation("[CREDENTIAL] ✅ PDF firmado y registrado en API de firma.");
             return "RSA-2048-SHA256-PKCS1";
         }
@@ -695,7 +674,6 @@ public class CredentialService : ICredentialService
         }
     }
 
-    // ── VERIFICAR CREDENCIAL ──────────────────────────────────
     public async Task<VerificarCredencialResponse> VerificarCredencialAsync(byte[] pdf_bytes)
     {
         try
@@ -703,10 +681,9 @@ public class CredentialService : ICredentialService
             var base_url = _config["FirmaElectronica:BaseUrl"]
                 ?? throw new InvalidOperationException("FirmaElectronica:BaseUrl no configurado.");
 
-            using var http    = new HttpClient();
+            using var http = new HttpClient();
             using var content = new MultipartFormDataContent();
 
-            // Solo mandamos el PDF — la API de firma busca la firma internamente
             var pdf_content = new ByteArrayContent(pdf_bytes);
             pdf_content.Headers.ContentType =
                 new System.Net.Http.Headers.MediaTypeHeaderValue("application/pdf");
@@ -719,23 +696,23 @@ public class CredentialService : ICredentialService
                 _logger.LogWarning("[CREDENTIAL] API firma respondió {s} al verificar.", response.StatusCode);
                 return new VerificarCredencialResponse
                 {
-                    valido  = false,
+                    valido = false,
                     mensaje = "❌ No se pudo contactar el servicio de firma.",
                     algoritmo = "RSA-2048 SHA-256 PKCS1"
                 };
             }
 
             var json = await response.Content.ReadAsStringAsync();
-            var doc  = System.Text.Json.JsonDocument.Parse(json);
-            var root = doc.RootElement;
+            var jsonDoc = System.Text.Json.JsonDocument.Parse(json);
+            var root = jsonDoc.RootElement;
 
-            var valido    = root.GetProperty("valido").GetBoolean();
-            var mensaje   = root.GetProperty("mensaje").GetString() ?? string.Empty;
+            var valido = root.GetProperty("valido").GetBoolean();
+            var mensaje = root.GetProperty("mensaje").GetString() ?? string.Empty;
             var algoritmo = root.GetProperty("algoritmo").GetString() ?? string.Empty;
 
             DateTime? fecha_firma = null;
             if (root.TryGetProperty("fecha_firma", out var fecha_el) &&
-                fecha_el.ValueKind != System.Text.Json.JsonValueKind.Null)
+                fecha_el.ValueKind != JsonValueKind.Null)
             {
                 fecha_firma = fecha_el.GetDateTime();
             }
@@ -744,9 +721,9 @@ public class CredentialService : ICredentialService
 
             return new VerificarCredencialResponse
             {
-                valido     = valido,
-                mensaje    = mensaje,
-                algoritmo  = algoritmo,
+                valido = valido,
+                mensaje = mensaje,
+                algoritmo = algoritmo,
                 fecha_firma = fecha_firma
             };
         }
@@ -755,8 +732,8 @@ public class CredentialService : ICredentialService
             _logger.LogError(ex, "[CREDENTIAL] ❌ Error al verificar credencial.");
             return new VerificarCredencialResponse
             {
-                valido    = false,
-                mensaje   = "❌ Error interno al verificar el documento.",
+                valido = false,
+                mensaje = "❌ Error interno al verificar el documento.",
                 algoritmo = "RSA-2048 SHA-256 PKCS1"
             };
         }
