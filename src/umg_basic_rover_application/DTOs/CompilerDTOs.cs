@@ -38,17 +38,10 @@ public class TokenDto
     public string? valor   { get; set; }
 }
 
-/// <summary>
-/// DTO de error del compilador.
-/// El campo 'codigo' contiene el código de error por fase:
-///   Léxico:    LEX001 (carácter inválido), LEX002 (símbolo inválido), LEX003 (instrucción mal escrita)
-///   Sintáctico: SIN001-SIN014
-///   Semántico:  SEM001 (girar inválido), SEM002 (cero), SEM003 (circulo rango), SEM004 (no entero), SEM005 (cuadrado rango)
-/// </summary>
 public class ErrorDto
 {
     public string  tipo       { get; set; } = string.Empty;
-    public string? codigo     { get; set; }   // Código de error: LEX001, SIN003, SEM002, etc.
+    public string? codigo     { get; set; }
     public int?    linea      { get; set; }
     public int?    columna    { get; set; }
     public string  mensaje    { get; set; } = string.Empty;
@@ -81,4 +74,21 @@ public class CompileHistoryResponse
     public int      tiempo_ms           { get; set; }
     public DateTime fecha_compilacion   { get; set; }
     public int      total_instrucciones { get; set; }
+}
+
+// ── AST ────────────────────────────────────────────────────
+public class AstResponse
+{
+    public bool           exitoso  { get; set; }
+    public string         programa { get; set; } = string.Empty;
+    public AstNodoDto?    arbol    { get; set; }
+    public List<ErrorDto> errores  { get; set; } = new();
+}
+
+public class AstNodoDto
+{
+    public string            tipo  { get; set; } = string.Empty;
+    public string?           valor { get; set; }
+    public int               linea { get; set; }
+    public List<AstNodoDto>  hijos { get; set; } = new();
 }

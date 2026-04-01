@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using umg_basic_rover_application.Contracts;
 using umg_basic_rover_application.DTOs;
 using umg_basic_rover_domain.entities;
+using umg_basic_rover_infrastructure.Compiler;
 using umg_basic_rover_infrastructure.persistence.context;
 
 namespace umg_basic_rover_api.Controllers;
@@ -15,8 +16,8 @@ namespace umg_basic_rover_api.Controllers;
 [Produces("application/json")]
 public class CompilerController : ControllerBase
 {
-    private readonly ICompilerService _compiler;
-    private readonly rover_db_context _db;
+    private readonly ICompilerService            _compiler;
+    private readonly rover_db_context            _db;
     private readonly ILogger<CompilerController> _logger;
 
     public CompilerController(ICompilerService compiler, rover_db_context db, ILogger<CompilerController> logger)
@@ -29,19 +30,6 @@ public class CompilerController : ControllerBase
     /// <summary>
     /// Compila código UMG++. Ejecuta Léxico → Sintáctico → Semántico → Transpilador.
     /// </summary>
-    /// <remarks>
-    /// Ejemplo de código UMG++ válido:
-    ///
-    ///     PROGRAM mi_ruta
-    ///     BEGIN
-    ///       avanzar_mts(5);
-    ///       girar(1);
-    ///       circulo(50);
-    ///     END.
-    ///
-    /// Modos disponibles: solo_compilar | compilar_simular | compilar_ejecutar
-    /// Lenguajes destino: python | csharp
-    /// </remarks>
     [HttpPost("analyze")]
     [ProducesResponseType(typeof(CompileResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
@@ -77,7 +65,6 @@ public class CompilerController : ControllerBase
 
         try
         {
-            // Registrar acción en bitácora
             _db.bitacora_acciones.Add(new bitacora_accion_entity
             {
                 usuario_id   = usuario_id,
@@ -144,4 +131,131 @@ public class CompilerController : ControllerBase
         var total = await _db.compilaciones.CountAsync(c => c.usuario_id == usuario_id);
         return Ok(new { page, size, total, data = historial });
     }
+
+    /// <summary>
+    /// Genera el Árbol Sintáctico Abstracto (AST) del código UMG++ en formato JSON.
+    /// El frontend puede usar este JSON directamente para dibujar el árbol en pantalla.
+    /// Estructura del árbol:
+    ///   PROGRAMA → BLOQUE → INSTRUCCION → PARAMETRO
+    ///                     → INSTRUCCION_COMBINADA → COMPONENTE → PARAMETRO
+    /// </summary>
+    [HttpPost("ast")]
+    [ProducesResponseType(typeof(AstResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GenerarAst([FromBody] CompileRequest request)
+    {
+        if (!ModelState.IsValid)
+        {
+            var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage);
+            return BadRequest(new { error = "Datos inválidos.", detalles = errors });
+        }
+
+        var uid_str = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!int.TryParse(uid_str, out int usuario_id))
+            return Unauthorized(new { error = "Token inválido." });
+
+        var sesion = await _db.sesiones
+            .AsNoTracking()
+            .Where(s => s.usuario_id == usuario_id && s.activa)
+            .OrderByDescending(s => s.fecha_login)
+            .FirstOrDefaultAsync();
+
+        if (sesion == null)
+            return Unauthorized(new { error = "No hay sesión activa." });
+
+        try
+        {
+            // FASE 1: Léxico
+            var lexer = new Lexer(request.codigo_fuente);
+            var (tokens, errores_lex) = lexer.Tokenize();
+
+            if (errores_lex.Any())
+                return Ok(new AstResponse
+                {
+                    exitoso  = false,
+                    programa = "",
+                    arbol    = null,
+                    errores  = errores_lex.Select(e => new ErrorDto
+                    {
+                        tipo       = "lexico",
+                        codigo     = e.Codigo,
+                        linea      = e.Linea,
+                        columna    = e.Columna,
+                        mensaje    = e.Mensaje,
+                        sugerencia = e.Sugerencia
+                    }).ToList()
+                });
+
+            // FASE 2: Sintáctico
+            var parser = new Parser(tokens);
+            var (nodos, errores_sin) = parser.Parse();
+
+            if (errores_sin.Any())
+                return Ok(new AstResponse
+                {
+                    exitoso  = false,
+                    programa = "",
+                    arbol    = null,
+                    errores  = errores_sin.Select(e => new ErrorDto
+                    {
+                        tipo       = "sintactico",
+                        codigo     = e.Codigo,
+                        linea      = e.Linea,
+                        columna    = e.Columna,
+                        mensaje    = e.Mensaje,
+                        sugerencia = e.Sugerencia
+                    }).ToList()
+                });
+
+            // FASE 3: Semántico
+            var semantic = new SemanticAnalyzer(nodos);
+            var (instrucciones, errores_sem) = semantic.Analyze();
+
+            if (errores_sem.Any())
+                return Ok(new AstResponse
+                {
+                    exitoso  = false,
+                    programa = "",
+                    arbol    = null,
+                    errores  = errores_sem.Select(e => new ErrorDto
+                    {
+                        tipo       = "semantico",
+                        codigo     = e.Codigo,
+                        linea      = e.Linea,
+                        columna    = e.Columna,
+                        mensaje    = e.Mensaje,
+                        sugerencia = e.Sugerencia
+                    }).ToList()
+                });
+
+            // Construir el AST
+            var builder = new AstBuilder();
+            var ast     = builder.Construir(tokens, instrucciones);
+            var nombre  = tokens.SkipWhile(t => t.Lexema != "PROGRAM")
+                                .Skip(1).FirstOrDefault()?.Lexema ?? "programa";
+
+            return Ok(new AstResponse
+            {
+                exitoso  = true,
+                programa = nombre,
+                arbol    = MapearNodo(ast),
+                errores  = new()
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[AST] Error inesperado al generar AST.");
+            return StatusCode(500, new { error = "Error interno al generar el árbol sintáctico." });
+        }
+    }
+
+    // ── MAPEO DE NODO INTERNO A DTO ──────────────────────────
+    private AstNodoDto MapearNodo(AstNodo nodo) => new()
+    {
+        tipo  = nodo.tipo,
+        valor = nodo.valor,
+        linea = nodo.linea,
+        hijos = nodo.hijos.Select(MapearNodo).ToList()
+    };
 }
