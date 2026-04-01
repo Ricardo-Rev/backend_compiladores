@@ -155,64 +155,76 @@ public class CredentialService : ICredentialService
 
         CargarFondo(doc, W, H);
 
-        // FOTO REAL TOMADA CON CÁMARA (recuadro superior izquierdo)
-        DibujarImagenBase64(doc, foto_facial_base64, 48f, 556f, 119f, 142f);
+        // ── FOTO FACIAL (recuadro superior izquierdo) ─────────────
+        // img: x=48, y=248, w=119px, h=96pt calculado
+        DibujarImagenBase64(doc, foto_facial_base64, 48f, 610f, 119f, 96f);
 
-        // AVATAR (recuadro inferior derecho)
-        DibujarAvatar(doc, usuario.avatar_base64, usuario.usuario, 383f, 295f, 122f, 142f, fontBold, blanco);
-
-        // QR (recuadro superior derecho)
+        // ── QR (recuadro superior derecho) ────────────────────────
+        // img: x=425, y=225 → pdf_y=592
         doc.Add(new Image(ImageDataFactory.Create(qr_bytes))
-            .SetFixedPosition(425f, 580f)
+            .SetFixedPosition(425f, 592f)
             .SetWidth(112f)
-            .SetHeight(126f));
+            .SetHeight(112f));
 
-        // NOMBRE COMPLETO (solo valor, el label ya está en la plantilla)
+        doc.Add(new Paragraph("Código QR\nde acceso")
+            .SetFont(fontNormal)
+            .SetFontSize(7.5f)
+            .SetFontColor(blanco)
+            .SetTextAlignment(TextAlignment.CENTER)
+            .SetFixedPosition(425f, 574f, 112f));
+
+        // ── NOMBRE COMPLETO valor (label ya está en plantilla) ────
+        // img_y=318 → pdf_y=651
         doc.Add(new Paragraph(usuario.nombre_completo ?? usuario.usuario)
             .SetFont(fontBold)
             .SetFontSize(13f)
             .SetFontColor(blanco)
-            .SetFixedPosition(205f, 635f, 205f));
+            .SetFixedPosition(205f, 651f, 205f));
 
-        // USUARIO SUPERIOR (solo valor, el label ya está en la plantilla)
+        // ── USUARIO SUPERIOR valor (label ya está en plantilla) ───
+        // img_y=382 → pdf_y=616
         doc.Add(new Paragraph(usuario.usuario ?? "")
             .SetFont(fontBold)
             .SetFontSize(12f)
             .SetFontColor(blanco)
-            .SetFixedPosition(205f, 575f, 205f));
+            .SetFixedPosition(205f, 616f, 205f));
 
-        // CAMPOS INFERIORES (solo valores, los labels ya están en la plantilla)
+        // ── AVATAR (recuadro inferior derecho) ───────────────────
+        // img: x=388, y=668 → pdf_y=353
+        DibujarAvatar(doc, usuario.avatar_base64, usuario.usuario, 388f, 353f, 122f, 122f, fontBold, blanco);
 
-        // USUARIO
+        // ── CAMPOS INFERIORES (solo valores, labels en plantilla) ─
+
+        // USUARIO — img_y=555 → pdf_y=521
         doc.Add(new Paragraph(usuario.usuario ?? "")
             .SetFont(fontBold)
             .SetFontSize(11.5f)
             .SetFontColor(blanco)
-            .SetFixedPosition(52f, 490f, 385f));
+            .SetFixedPosition(52f, 521f, 385f));
 
-        // CORREO ELECTRÓNICO
+        // CORREO — img_y=645 → pdf_y=472
         doc.Add(new Paragraph(usuario.email ?? "")
             .SetFont(fontBold)
             .SetFontSize(11.3f)
             .SetFontColor(blanco)
-            .SetFixedPosition(52f, 421f, 300f));
+            .SetFixedPosition(52f, 472f, 300f));
 
-        // WHATSAPP
+        // WHATSAPP — img_y=735 → pdf_y=423
         doc.Add(new Paragraph(usuario.telefono ?? "")
             .SetFont(fontBold)
             .SetFontSize(11.5f)
             .SetFontColor(blanco)
-            .SetFixedPosition(52f, 352f, 300f));
+            .SetFixedPosition(52f, 423f, 300f));
 
-        // EMISIÓN - VIGENCIA
+        // EMISIÓN - VIGENCIA — img_y=825 → pdf_y=373
         var vigencia = $"{usuario.fecha_creacion:dd/MM/yyyy} - {usuario.fecha_creacion.AddYears(1):dd/MM/yyyy}";
         doc.Add(new Paragraph(vigencia)
             .SetFont(fontBold)
             .SetFontSize(11.2f)
             .SetFontColor(blanco)
-            .SetFixedPosition(52f, 283f, 320f));
+            .SetFixedPosition(52f, 373f, 320f));
 
-        // FIRMA / HASH
+        // ── FIRMA / HASH — img_y=910 → pdf_y=333 ─────────────────
         var hashFirma = Convert.ToHexString(
             SHA256.HashData(
                 Encoding.UTF8.GetBytes($"{usuario.usuario}{usuario.email}{usuario.fecha_creacion:yyyyMMddHHmmss}")));
@@ -221,13 +233,13 @@ public class CredentialService : ICredentialService
             .SetFont(fontMono)
             .SetFontSize(6.8f)
             .SetFontColor(grisClaro)
-            .SetFixedPosition(50f, 175f, 430f));
+            .SetFixedPosition(50f, 233f, 430f));
 
         doc.Add(new Paragraph("SHA-256 · AES-256 · UMG Basic Rover 2.0-2026")
             .SetFont(fontNormal)
             .SetFontSize(8f)
             .SetFontColor(grisFirma)
-            .SetFixedPosition(50f, 157f, 320f));
+            .SetFixedPosition(50f, 218f, 320f));
 
         doc.Close();
         return ms.ToArray();
