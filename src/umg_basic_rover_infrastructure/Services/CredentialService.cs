@@ -155,73 +155,62 @@ public class CredentialService : ICredentialService
 
         CargarFondo(doc, W, H);
 
-        // ============================================================
-        // COORDENADAS LEÍDAS DIRECTAMENTE DEL PDF DE CALIBRACIÓN
-        // ============================================================
-
-        // FOTO FACIAL — recuadro izq arriba (Y=530 a Y=655)
+        // FOTO FACIAL — recuadro izq arriba
         DibujarImagenBase64(doc, foto_facial_base64, 48f, 530f, 118f, 125f);
 
-        // QR — recuadro blanco der arriba (Y=530 a Y=640)
+        // QR — sin texto debajo
         doc.Add(new Image(ImageDataFactory.Create(qr_bytes))
             .SetFixedPosition(430f, 530f)
             .SetWidth(110f)
             .SetHeight(110f));
 
-        doc.Add(new Paragraph("Código QR\nde acceso")
-            .SetFont(fontNormal)
-            .SetFontSize(7f)
-            .SetFontColor(blanco)
-            .SetTextAlignment(TextAlignment.CENTER)
-            .SetFixedPosition(430f, 512f, 110f));
-
-        // NOMBRE COMPLETO — recuadro centro (Y=620 a Y=658)
+        // NOMBRE COMPLETO — bajar 15pts respecto al último intento (626→611)
         doc.Add(new Paragraph(usuario.nombre_completo ?? usuario.usuario)
             .SetFont(fontBold)
             .SetFontSize(12f)
             .SetFontColor(blanco)
-            .SetFixedPosition(210f, 626f, 200f));
+            .SetFixedPosition(210f, 611f, 200f));
 
-        // USUARIO superior — recuadro (Y=560 a Y=598)
+        // USUARIO superior — bajar 15pts (566→551)
         doc.Add(new Paragraph(usuario.usuario ?? "")
             .SetFont(fontBold)
             .SetFontSize(11f)
             .SetFontColor(blanco)
-            .SetFixedPosition(210f, 566f, 200f));
+            .SetFixedPosition(210f, 551f, 200f));
 
-        // AVATAR — recuadro der abajo (Y=295 a Y=430)
-        DibujarAvatar(doc, usuario.avatar_base64, usuario.usuario, 600f, 295f, 120f, 135f, fontBold, blanco);
+        // AVATAR — mover X a la izquierda (600→385), Y igual
+        DibujarAvatar(doc, usuario.avatar_base64, usuario.usuario, 385f, 295f, 120f, 135f, fontBold, blanco);
 
-        // CAMPO USUARIO — recuadro (Y=475 a Y=510)
+        // CAMPO USUARIO — bajar 10pts (481→471)
         doc.Add(new Paragraph(usuario.usuario ?? "")
             .SetFont(fontBold)
             .SetFontSize(11f)
             .SetFontColor(blanco)
-            .SetFixedPosition(90f, 481f, 340f));
+            .SetFixedPosition(90f, 471f, 340f));
 
-        // CAMPO CORREO — recuadro (Y=430 a Y=462)
+        // CAMPO CORREO — bajar 10pts (435→425)
         doc.Add(new Paragraph(usuario.email ?? "")
             .SetFont(fontBold)
             .SetFontSize(11f)
             .SetFontColor(blanco)
-            .SetFixedPosition(90f, 435f, 290f));
+            .SetFixedPosition(90f, 425f, 290f));
 
-        // CAMPO WHATSAPP — recuadro (Y=355 a Y=388)
+        // CAMPO WHATSAPP — igual (360 estaba bien)
         doc.Add(new Paragraph(usuario.telefono ?? "")
             .SetFont(fontBold)
             .SetFontSize(11f)
             .SetFontColor(blanco)
-            .SetFixedPosition(90f, 360f, 290f));
+            .SetFixedPosition(90f, 355f, 290f));
 
-        // CAMPO EMISIÓN - VIGENCIA — recuadro (Y=285 a Y=318)
+        // CAMPO EMISIÓN - VIGENCIA — bajar 10pts (290→280)
         var vigencia = $"{usuario.fecha_creacion:dd/MM/yyyy} - {usuario.fecha_creacion.AddYears(1):dd/MM/yyyy}";
         doc.Add(new Paragraph(vigencia)
             .SetFont(fontBold)
             .SetFontSize(11f)
             .SetFontColor(blanco)
-            .SetFixedPosition(90f, 290f, 290f));
+            .SetFixedPosition(90f, 280f, 290f));
 
-        // FIRMA / HASH — zona Y=230 a Y=260
+        // FIRMA / HASH — igual (estaban bien)
         var hashFirma = Convert.ToHexString(
             SHA256.HashData(
                 Encoding.UTF8.GetBytes($"{usuario.usuario}{usuario.email}{usuario.fecha_creacion:yyyyMMddHHmmss}")));
