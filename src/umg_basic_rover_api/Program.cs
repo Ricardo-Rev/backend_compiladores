@@ -6,6 +6,7 @@ using Microsoft.OpenApi.Models;
 using umg_basic_rover_application.Contracts;
 using umg_basic_rover_infrastructure.Services;
 using umg_basic_rover_infrastructure.persistence.context;
+using umg_basic_rover_infrastructure.Mqtt;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -125,6 +126,9 @@ builder.Services.AddScoped<ICredentialService, CredentialService>();
 builder.Services.AddScoped<EmailVerificationService>();
 builder.Services.AddScoped<IFileService, FileService>();
 builder.Services.AddScoped<IChoreoService, ChoreoService>();
+
+// Rover MQTT
+builder.Services.AddSingleton<IMqttService, MqttService>();
 
 // Servicio de segmentación facial
 builder.Services.AddSingleton<FaceSegmentationService>(sp =>
