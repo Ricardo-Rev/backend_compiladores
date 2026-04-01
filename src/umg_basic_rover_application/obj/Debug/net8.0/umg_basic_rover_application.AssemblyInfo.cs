@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("umg_basic_rover_application")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6fded0ef5d7072c126d9ce619f26d49d8acabd4c")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+53cb2011d361b0c7f1326330ca357c196e3c0016")]
 [assembly: System.Reflection.AssemblyProductAttribute("umg_basic_rover_application")]
 [assembly: System.Reflection.AssemblyTitleAttribute("umg_basic_rover_application")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
