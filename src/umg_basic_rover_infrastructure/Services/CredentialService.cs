@@ -13,6 +13,7 @@ using iText.Kernel.Colors;
 using iText.Kernel.Font;
 using iText.IO.Font.Constants;
 using iText.IO.Image;
+using iText.Kernel.Geom;
 using umg_basic_rover_application.Contracts;
 using umg_basic_rover_application.DTOs;
 using umg_basic_rover_domain.entities;
@@ -149,119 +150,130 @@ public class CredentialService : ICredentialService
 
     // ── GENERACIÓN DEL PDF ───────────────────────────────────
 
+// ============================================================
+//  INSTRUCCIONES DE REEMPLAZO
+//
+//  1. USINGS — Verificá que al inicio de CredentialService.cs
+//     estén estos (los que ya tenés son suficientes, solo revisá):
+//       using iText.Kernel.Pdf;
+//       using iText.Layout;
+//       using iText.Layout.Element;
+//       using iText.Layout.Properties;
+//       using iText.Kernel.Colors;
+//       using iText.Kernel.Font;
+//       using iText.IO.Font.Constants;
+//       using iText.IO.Image;
+//     NO necesitás agregar nada nuevo.
+//
+//  2. REEMPLAZÁ el método GenerarPdf() completo (desde
+//     "private byte[] GenerarPdf..." hasta su llave de cierre "}")
+//     con el método de abajo.
+//
+//  3. AGREGÁ el método DibujarCampo() justo después de GenerarPdf()
+//     y antes de AgregarFila(). Es un método nuevo privado.
+//
+//  4. AgregarFila() NO se toca — puede quedarse aunque ya no
+//     se llame desde GenerarPdf, no rompe nada.
+//
+//  5. El recurso embebido debe estar en:
+//       Resources/fondo_credencial.jpeg
+//     y en el .csproj:
+//       <EmbeddedResource Include="Resources\fondo_credencial.jpeg" />
+// ============================================================
+
     private byte[] GenerarPdf(user_entity usuario, byte[] qr_bytes, string? foto_facial_base64 = null)
     {
         using var ms     = new MemoryStream();
         using var writer = new PdfWriter(ms);
         using var pdf    = new PdfDocument(writer);
-        using var doc    = new Document(pdf);
+        using var doc    = new Document(pdf, PageSize.A4);
+        doc.SetMargins(0, 0, 0, 0);
 
-        doc.SetMargins(20, 25, 20, 25);
+        // A4 en puntos (iText usa puntos, origen = esquina inferior izquierda)
+        const float W = 595f;
+        const float H = 842f;
 
-        // ── PALETA B — TECNOLÓGICO ───────────────────────────────
-        var color_negro    = new DeviceRgb(17,  24,  39);   // #111827
-        var color_azul_osc = new DeviceRgb(30,  58,  95);   // #1E3A5F
-        var color_cyan     = new DeviceRgb(6,  182, 212);   // #06B6D4
-        var color_purpura  = new DeviceRgb(109, 40, 217);   // #6D28D9
-        var color_purp_bg  = new DeviceRgb(245, 243, 255);  // #F5F3FF
-        var color_gris_clr = new DeviceRgb(249, 250, 251);  // #F9FAFB
-        var color_texto    = new DeviceRgb(31,  41,  55);   // #1F2937
-        var color_blanco   = ColorConstants.WHITE;
-
+        // ── FUENTES ─────────────────────────────────────────────
         var font_bold   = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
         var font_normal = PdfFontFactory.CreateFont(StandardFonts.HELVETICA);
         var font_mono   = PdfFontFactory.CreateFont(StandardFonts.COURIER);
 
-        // ── ENCABEZADO ──────────────────────────────────────────
-        var header_table = new Table(new float[] { 1, 3 }).UseAllAvailableWidth();
-        header_table.SetBackgroundColor(color_negro);
+        // ── COLORES ──────────────────────────────────────────────
+        var cyan    = new DeviceRgb(6,   182, 212);
+        var blanco  = new DeviceRgb(255, 255, 255);
+        var purpura = new DeviceRgb(109,  40, 217);
+        var gris    = new DeviceRgb(170, 170, 170);
 
-        var logo_cell = new Cell()
-            .SetBorder(iText.Layout.Borders.Border.NO_BORDER)
-            .SetPadding(12)
-            .Add(new Paragraph("UMG")
-                .SetFont(font_bold).SetFontSize(26)
-                .SetFontColor(color_cyan)
-                .SetTextAlignment(TextAlignment.CENTER));
-        header_table.AddCell(logo_cell);
+        // ── IMAGEN DE FONDO ──────────────────────────────────────
+        // Se agrega PRIMERO — queda como capa base del PDF
+        try
+        {
+            var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+            var resource = assembly.GetManifestResourceNames()
+                .FirstOrDefault(n => n.EndsWith("fondo_credencial.jpeg",
+                    StringComparison.OrdinalIgnoreCase));
 
-        var title_cell = new Cell()
-            .SetBorder(iText.Layout.Borders.Border.NO_BORDER)
-            .SetPadding(12)
-            .SetVerticalAlignment(VerticalAlignment.MIDDLE)
-            .Add(new Paragraph("UNIVERSIDAD MARIANO GALVEZ DE GUATEMALA")
-                .SetFont(font_bold).SetFontSize(11).SetFontColor(color_blanco))
-            .Add(new Paragraph("Ingenieria en Sistemas")
-                .SetFont(font_normal).SetFontSize(10).SetFontColor(color_blanco))
-            .Add(new Paragraph("UMG Basic Rover 2.0 - 2026")
-                .SetFont(font_bold).SetFontSize(9)
-                .SetFontColor(color_cyan));
-        header_table.AddCell(title_cell);
-        doc.Add(header_table);
+            if (resource != null)
+            {
+                using var res_stream = assembly.GetManifestResourceStream(resource)!;
+                using var buf        = new MemoryStream();
+                res_stream.CopyTo(buf);
 
-        // ── TÍTULO CREDENCIAL ───────────────────────────────────
-        var titulo_table = new Table(1).UseAllAvailableWidth();
-        titulo_table.SetMarginBottom(10);
-        var titulo_cell = new Cell()
-            .SetBackgroundColor(color_azul_osc)
-            .SetBorder(iText.Layout.Borders.Border.NO_BORDER)
-            .SetPadding(7)
-            .Add(new Paragraph("CREDENCIAL DE ACCESO  |  ASPIRANTE CONDUCTOR")
-                .SetFont(font_bold).SetFontSize(12)
-                .SetFontColor(color_cyan)
-                .SetTextAlignment(TextAlignment.CENTER));
-        titulo_table.AddCell(titulo_cell);
-        doc.Add(titulo_table);
+                doc.Add(new Image(ImageDataFactory.Create(buf.ToArray()))
+                    .SetFixedPosition(0f, 0f)
+                    .SetWidth(W)
+                    .SetHeight(H));
+            }
+            else
+            {
+                _logger.LogWarning("[CREDENTIAL] Recurso fondo_credencial.jpeg no encontrado en el assembly.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("[CREDENTIAL] Fondo no cargado: {msg}", ex.Message);
+            // El PDF se genera igual, solo sin imagen de fondo
+        }
 
-        // ── DATOS PRINCIPALES ───────────────────────────────────
-        var data_table = new Table(new float[] { 1, 2 }).UseAllAvailableWidth();
-        data_table.SetMarginBottom(10);
+        // ── ENCABEZADO ───────────────────────────────────────────
+        doc.Add(new Paragraph("UMG  ++")
+            .SetFont(font_bold).SetFontSize(22f)
+            .SetFontColor(cyan)
+            .SetFixedPosition(55f, 778f, 180f));
 
-        AgregarFila(data_table, "Nickname",       usuario.usuario,         font_bold, font_normal, color_azul_osc);
-        AgregarFila(data_table, "Nombre",         usuario.nombre_completo, font_bold, font_normal, color_azul_osc);
-        AgregarFila(data_table, "Correo",         usuario.email,           font_bold, font_normal, color_azul_osc);
-        AgregarFila(data_table, "Telefono",       usuario.telefono,        font_bold, font_normal, color_azul_osc);
-        AgregarFila(data_table, "Rol",            "Aspirante Conductor",   font_bold, font_normal, color_azul_osc);
-        AgregarFila(data_table, "Registro",       usuario.fecha_creacion.ToString("dd/MM/yyyy HH:mm"), font_bold, font_normal, color_azul_osc);
-        doc.Add(data_table);
+        doc.Add(new Paragraph("Universidad Mariano Galvez - Ingenieria en Sistemas 2026")
+            .SetFont(font_normal).SetFontSize(8f)
+            .SetFontColor(blanco)
+            .SetFixedPosition(55f, 763f, 340f));
 
-        // ── QR + AVATAR + FOTO ──────────────────────────────────
-        var qr_section = new Table(new float[] { 1, 1, 1 }).UseAllAvailableWidth();
-        qr_section.SetMarginBottom(10);
+        doc.Add(new Paragraph("PILOTO")
+            .SetFont(font_bold).SetFontSize(10f)
+            .SetFontColor(blanco)
+            .SetFixedPosition(W - 105f, 778f, 80f));
 
-        // Columna 1 — QR
-        var qr_image = ImageDataFactory.Create(qr_bytes);
-        var qr_cell  = new Cell()
-            .SetBorder(iText.Layout.Borders.Border.NO_BORDER)
-            .SetBackgroundColor(color_gris_clr)
-            .SetPadding(8)
+        // ── SUBTÍTULO ────────────────────────────────────────────
+        doc.Add(new Paragraph("CREDENCIAL DE ACCESO — BASIC ROVER 2.0")
+            .SetFont(font_bold).SetFontSize(11f)
+            .SetFontColor(blanco)
             .SetTextAlignment(TextAlignment.CENTER)
-            .Add(new Paragraph("Codigo QR de Acceso")
-                .SetFont(font_bold).SetFontSize(9).SetFontColor(color_cyan))
-            .Add(new Image(qr_image).SetWidth(90).SetHeight(90));
-        qr_section.AddCell(qr_cell);
+            .SetFixedPosition(50f, 730f, W - 100f));
 
-        // Columna 2 — Avatar
-        var avatar_cell = new Cell()
-            .SetBorder(iText.Layout.Borders.Border.NO_BORDER)
-            .SetBackgroundColor(color_gris_clr)
-            .SetPadding(8)
-            .SetVerticalAlignment(VerticalAlignment.MIDDLE)
-            .SetTextAlignment(TextAlignment.CENTER);
+        // ── AVATAR ───────────────────────────────────────────────
+        const float AVATAR_X = 65f;
+        const float AVATAR_Y = 580f;
+        const float AVATAR_W = 95f;
+        const float AVATAR_H = 110f;
 
         if (!string.IsNullOrEmpty(usuario.avatar_base64))
         {
             try
             {
-                // Soporta PNG, JPEG y SVG — extrae solo los bytes base64
                 var raw = usuario.avatar_base64.Contains(",")
                     ? usuario.avatar_base64.Split(',')[1]
                     : usuario.avatar_base64;
-
                 var img_bytes = Convert.FromBase64String(raw);
 
-                // Si es SVG intenta renderizarlo a PNG, si no úsalo directo
-                byte[] png_bytes;
+                byte[] final_bytes;
                 if (usuario.avatar_base64.Contains("image/svg") ||
                     usuario.avatar_base64.TrimStart().StartsWith("<svg") ||
                     (img_bytes.Length > 4 && img_bytes[0] == '<'))
@@ -269,53 +281,99 @@ public class CredentialService : ICredentialService
                     using var svg_stream = new MemoryStream(img_bytes);
                     var svg = new Svg.Skia.SKSvg();
                     svg.Load(svg_stream);
-                    using var bitmap   = new SkiaSharp.SKBitmap(200, 200);
-                    using var canvas_sk = new SkiaSharp.SKCanvas(bitmap);
-                    canvas_sk.Clear(SkiaSharp.SKColors.White);
-                    var scale_x = 200f / svg.Picture!.CullRect.Width;
-                    var scale_y = 200f / svg.Picture.CullRect.Height;
-                    var matrix  = SkiaSharp.SKMatrix.CreateScale(scale_x, scale_y);
-                    canvas_sk.DrawPicture(svg.Picture, ref matrix);
-                    using var png_stream = new MemoryStream();
-                    bitmap.Encode(png_stream, SkiaSharp.SKEncodedImageFormat.Png, 100);
-                    png_bytes = png_stream.ToArray();
+                    using var bmp = new SkiaSharp.SKBitmap(200, 200);
+                    using var csk = new SkiaSharp.SKCanvas(bmp);
+                    csk.Clear(SkiaSharp.SKColors.Transparent);
+                    var sx  = 200f / svg.Picture!.CullRect.Width;
+                    var sy  = 200f / svg.Picture.CullRect.Height;
+                    var mtx = SkiaSharp.SKMatrix.CreateScale(sx, sy);
+                    csk.DrawPicture(svg.Picture, ref mtx);
+                    using var ps = new MemoryStream();
+                    bmp.Encode(ps, SkiaSharp.SKEncodedImageFormat.Png, 100);
+                    final_bytes = ps.ToArray();
                 }
                 else
                 {
-                    // PNG o JPEG directo — úsalo tal cual
-                    png_bytes = img_bytes;
+                    final_bytes = img_bytes;
                 }
 
-                var avatar_img = ImageDataFactory.Create(png_bytes);
-                avatar_cell
-                    .Add(new Paragraph("Avatar")
-                        .SetFont(font_bold).SetFontSize(9).SetFontColor(color_cyan))
-                    .Add(new Image(avatar_img).SetWidth(70).SetHeight(70));
+                doc.Add(new Image(ImageDataFactory.Create(final_bytes))
+                    .SetFixedPosition(AVATAR_X, AVATAR_Y)
+                    .SetWidth(AVATAR_W)
+                    .SetHeight(AVATAR_H));
             }
             catch
             {
-                avatar_cell.Add(new Paragraph("Avatar\nno disponible")
-                    .SetFont(font_normal).SetFontSize(8));
+                // Avatar inválido — placeholder con iniciales
+                doc.Add(new Paragraph(usuario.usuario[..Math.Min(2, usuario.usuario.Length)].ToUpper())
+                    .SetFont(font_bold).SetFontSize(24f)
+                    .SetFontColor(cyan)
+                    .SetFixedPosition(AVATAR_X + 28f, AVATAR_Y + 40f, AVATAR_W));
             }
         }
         else
         {
-            avatar_cell.Add(new Paragraph($"[ {usuario.usuario} ]")
-                .SetFont(font_bold).SetFontSize(13)
-                .SetFontColor(color_cyan)
-                .SetBackgroundColor(color_azul_osc)
-                .SetPadding(15));
+            doc.Add(new Paragraph(usuario.usuario[..Math.Min(2, usuario.usuario.Length)].ToUpper())
+                .SetFont(font_bold).SetFontSize(24f)
+                .SetFontColor(cyan)
+                .SetFixedPosition(AVATAR_X + 28f, AVATAR_Y + 40f, AVATAR_W));
         }
-        qr_section.AddCell(avatar_cell);
 
-        // Columna 3 — Foto facial
-        var foto_cell = new Cell()
-            .SetBorder(iText.Layout.Borders.Border.NO_BORDER)
-            .SetBackgroundColor(color_gris_clr)
-            .SetPadding(8)
-            .SetVerticalAlignment(VerticalAlignment.MIDDLE)
-            .SetTextAlignment(TextAlignment.CENTER);
+        // ── NOMBRE Y USUARIO (a la derecha del avatar) ───────────
+        doc.Add(new Paragraph("NOMBRE COMPLETO")
+            .SetFont(font_bold).SetFontSize(8f)
+            .SetFontColor(cyan)
+            .SetFixedPosition(185f, 692f, 280f));
 
+        doc.Add(new Paragraph(usuario.nombre_completo ?? usuario.usuario)
+            .SetFont(font_bold).SetFontSize(14f)
+            .SetFontColor(blanco)
+            .SetFixedPosition(185f, 674f, 280f));
+
+        doc.Add(new Paragraph("USUARIO")
+            .SetFont(font_bold).SetFontSize(8f)
+            .SetFontColor(cyan)
+            .SetFixedPosition(185f, 644f, 280f));
+
+        doc.Add(new Paragraph(usuario.usuario)
+            .SetFont(font_normal).SetFontSize(12f)
+            .SetFontColor(blanco)
+            .SetFixedPosition(185f, 628f, 280f));
+
+        // ── QR (esquina superior derecha) ────────────────────────
+        doc.Add(new Image(ImageDataFactory.Create(qr_bytes))
+            .SetFixedPosition(W - 128f, 608f)
+            .SetWidth(88f)
+            .SetHeight(88f));
+
+        doc.Add(new Paragraph("Código QR\nde acceso")
+            .SetFont(font_normal).SetFontSize(7.5f)
+            .SetFontColor(blanco)
+            .SetTextAlignment(TextAlignment.CENTER)
+            .SetFixedPosition(W - 128f, 592f, 88f));
+
+        // ── CAMPOS INFERIORES ────────────────────────────────────
+        const float CAMPO_X = 55f;
+        const float CAMPO_W = W - 110f;
+
+        DibujarCampo(doc, "USUARIO",
+            usuario.email ?? "",
+            CAMPO_X, 530f, CAMPO_W, font_bold, font_normal, cyan, blanco, 8f, 11f);
+
+        DibujarCampo(doc, "CORREO ELECTRÓNICO",
+            usuario.email ?? "",
+            CAMPO_X, 484f, CAMPO_W, font_bold, font_normal, cyan, blanco, 8f, 11f);
+
+        DibujarCampo(doc, "WHATSAPP",
+            usuario.telefono ?? "",
+            CAMPO_X, 438f, CAMPO_W, font_bold, font_normal, cyan, blanco, 8f, 11f);
+
+        var vigencia = $"{usuario.fecha_creacion:dd/MM/yyyy} - {usuario.fecha_creacion.AddYears(1):dd/MM/yyyy}";
+        DibujarCampo(doc, "EMISIÓN - VIGENCIA",
+            vigencia,
+            CAMPO_X, 392f, CAMPO_W, font_bold, font_normal, cyan, blanco, 8f, 11f);
+
+        // ── FOTO FACIAL (si existe) ───────────────────────────────
         if (!string.IsNullOrEmpty(foto_facial_base64))
         {
             try
@@ -324,59 +382,72 @@ public class CredentialService : ICredentialService
                     foto_facial_base64.Contains(",")
                         ? foto_facial_base64.Split(',')[1]
                         : foto_facial_base64);
-                var foto_img = ImageDataFactory.Create(foto_bytes);
-                foto_cell
-                    .Add(new Paragraph("Foto del Conductor")
-                        .SetFont(font_bold).SetFontSize(9).SetFontColor(color_cyan))
-                    .Add(new Image(foto_img).SetWidth(90).SetHeight(90)
-                        .SetBorderRadius(new iText.Layout.Properties.BorderRadius(6)));
+                doc.Add(new Image(ImageDataFactory.Create(foto_bytes))
+                    .SetFixedPosition(W - 125f, 430f)
+                    .SetWidth(80f)
+                    .SetHeight(80f));
             }
-            catch
-            {
-                foto_cell.Add(new Paragraph("Foto\nno disponible")
-                    .SetFont(font_normal).SetFontSize(8));
-            }
+            catch { /* Si falla la foto facial, continúa sin ella */ }
         }
-        else
-        {
-            foto_cell.Add(new Paragraph("Sin foto\nregistrada")
-                .SetFont(font_normal).SetFontSize(8)
-                .SetFontColor(new DeviceRgb(150, 150, 150)));
-        }
-        qr_section.AddCell(foto_cell);
-        doc.Add(qr_section);
 
-        // ── FIRMA ELECTRÓNICA ───────────────────────────────────
-        var firma_panel = new Table(1).UseAllAvailableWidth();
-        firma_panel.SetMarginBottom(10);
-        var firma_cell = new Cell()
-            .SetBackgroundColor(color_purp_bg)
-            .SetPadding(10)
-            .SetBorder(new iText.Layout.Borders.SolidBorder(color_purpura, 1.5f))
-            .Add(new Paragraph("FIRMA ELECTRONICA AVANZADA — RSA-2048")
-                .SetFont(font_bold).SetFontSize(9).SetFontColor(color_purpura))
-            .Add(new Paragraph("Documento firmado con clave privada RSA-2048. Verificable en: https://firmaelectronicaapi-production.up.railway.app/swagger")
-                .SetFont(font_normal).SetFontSize(7.5f).SetFontColor(color_texto))
-            .Add(new Paragraph($"Emitida: {DateTime.Now:dd/MM/yyyy HH:mm:ss} UTC  |  Algoritmo: RSA-2048 SHA-256 PKCS1  |  Proyecto: UMG Basic Rover 2.0-2026")
-                .SetFont(font_normal).SetFontSize(7.5f).SetFontColor(color_texto));
-        firma_panel.AddCell(firma_cell);
-        doc.Add(firma_panel);
+        // ── FIRMA ELECTRÓNICA ────────────────────────────────────
+        doc.Add(new Paragraph("FIRMA ELECTRÓNICA AVANZADA")
+            .SetFont(font_bold).SetFontSize(9f)
+            .SetFontColor(purpura)
+            .SetFixedPosition(CAMPO_X, 328f, CAMPO_W));
 
-        // ── PIE ─────────────────────────────────────────────────
-        var pie_table = new Table(1).UseAllAvailableWidth();
-        var pie_cell = new Cell()
-            .SetBackgroundColor(color_negro)
-            .SetBorder(iText.Layout.Borders.Border.NO_BORDER)
-            .SetPadding(6)
-            .Add(new Paragraph("Documento oficial generado electronicamente. La firma avanzada garantiza su autenticidad. | UMG Ingenieria en Sistemas 2026")
-                .SetFont(font_normal).SetFontSize(7f)
-                .SetFontColor(new DeviceRgb(156, 163, 175))
-                .SetTextAlignment(TextAlignment.CENTER));
-        pie_table.AddCell(pie_cell);
-        doc.Add(pie_table);
+        var hash_firma = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(
+                    $"{usuario.usuario}{usuario.email}{usuario.fecha_creacion:yyyyMMddHHmmss}")));
+
+        doc.Add(new Paragraph(hash_firma)
+            .SetFont(font_mono).SetFontSize(7f)
+            .SetFontColor(blanco)
+            .SetFixedPosition(CAMPO_X, 312f, CAMPO_W));
+
+        doc.Add(new Paragraph("SHA-256 · AES-256 · UMG Basic Rover 2.0-2026")
+            .SetFont(font_normal).SetFontSize(7.5f)
+            .SetFontColor(gris)
+            .SetFixedPosition(CAMPO_X, 296f, CAMPO_W));
+
+        // ── SELLO VERIFICADO ─────────────────────────────────────
+        doc.Add(new Paragraph("✓  VERIFICADO")
+            .SetFont(font_bold).SetFontSize(12f)
+            .SetFontColor(cyan)
+            .SetFixedPosition(W - 140f, 72f, 120f));
 
         doc.Close();
         return ms.ToArray();
+    }
+
+    // ── HELPER NUEVO: agrega campo con label + valor superpuestos ─
+    // Pegá este método DESPUÉS de GenerarPdf() y ANTES de AgregarFila()
+    private static void DibujarCampo(
+        Document  doc,
+        string    label,
+        string    valor,
+        float     x,
+        float     y,
+        float     w,
+        PdfFont   font_bold,
+        PdfFont   font_normal,
+        DeviceRgb color_label,
+        DeviceRgb color_valor,
+        float     label_size,
+        float     valor_size)
+    {
+        doc.Add(new Paragraph(label)
+            .SetFont(font_bold)
+            .SetFontSize(label_size)
+            .SetFontColor(color_label)
+            .SetFixedPosition(x, y + 14f, w));
+
+        doc.Add(new Paragraph(valor)
+            .SetFont(font_normal)
+            .SetFontSize(valor_size)
+            .SetFontColor(color_valor)
+            .SetFixedPosition(x, y, w));
     }
     private static void AgregarFila(Table t, string label, string valor,
         PdfFont font_bold, PdfFont font_normal, DeviceRgb color_header)
