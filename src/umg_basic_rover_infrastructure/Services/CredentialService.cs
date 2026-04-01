@@ -514,14 +514,37 @@ public class CredentialService : ICredentialService
     {
         try
         {
-            var api_key = _config["SendGrid:ApiKey"] ?? throw new InvalidOperationException("SendGrid:ApiKey no configurado.");
-            var from_email = _config["SendGrid:From"] ?? throw new InvalidOperationException("SendGrid:From no configurado.");
+            // ── Validar config sin lanzar excepcion ───────────────
+            var api_key = _config["SendGrid:ApiKey"];
+            if (string.IsNullOrWhiteSpace(api_key))
+            {
+                _logger.LogError("[CREDENTIAL] ❌ SendGrid:ApiKey no configurado en variables de entorno.");
+                await RegistrarNotificacionAsync(usuario.id, "credencial_pdf", "email",
+                    $"Credencial PDF — {usuario.usuario}", "error_config", credencial_id);
+                return false;
+            }
+
+            var from_email = _config["SendGrid:From"];
+            if (string.IsNullOrWhiteSpace(from_email))
+            {
+                _logger.LogError("[CREDENTIAL] ❌ SendGrid:From no configurado en variables de entorno.");
+                await RegistrarNotificacionAsync(usuario.id, "credencial_pdf", "email",
+                    $"Credencial PDF — {usuario.usuario}", "error_config", credencial_id);
+                return false;
+            }
+
             var from_name = _config["SendGrid:FromName"] ?? "UMG Basic Rover 2.0";
 
-            var client = new SendGrid.SendGridClient(api_key);
-            var from = new SendGrid.Helpers.Mail.EmailAddress(from_email, from_name);
-            var to = new SendGrid.Helpers.Mail.EmailAddress(usuario.email, usuario.nombre_completo);
-            var subject = $"🏁 Tu Credencial de Acceso — UMG Basic Rover 2.0 | {usuario.usuario}";
+            // ── firma nunca null ──────────────────────────────────
+            var firma_safe    = firma ?? string.Empty;
+            var firma_display = firma_safe.Length > 32
+                ? firma_safe[..32] + "..."
+                : (firma_safe.Length > 0 ? firma_safe : "RSA-2048-SHA256-PKCS1");
+
+            var client  = new SendGrid.SendGridClient(api_key);
+            var from    = new SendGrid.Helpers.Mail.EmailAddress(from_email, from_name);
+            var to      = new SendGrid.Helpers.Mail.EmailAddress(usuario.email, usuario.nombre_completo ?? usuario.usuario);
+            var subject = $"Tu Credencial de Acceso - UMG Basic Rover 2.0 | {usuario.usuario}";
 
             var html_body = $@"
 <!DOCTYPE html>
@@ -530,43 +553,53 @@ public class CredentialService : ICredentialService
 <body style='font-family: Arial, sans-serif; background:#f5f5f5; margin:0; padding:20px;'>
 <div style='max-width:600px; margin:auto; background:white; border-radius:8px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.1);'>
     <div style='background:#003087; padding:24px; text-align:center;'>
-        <h1 style='color:white; margin:0; font-size:22px;'>🏁 UMG Basic Rover 2.0</h1>
-        <p style='color:#FFD700; margin:6px 0 0;'>Universidad Mariano Gálvez de Guatemala</p>
+        <h1 style='color:white; margin:0; font-size:22px;'>UMG Basic Rover 2.0</h1>
+        <p style='color:#FFD700; margin:6px 0 0;'>Universidad Mariano Galvez de Guatemala</p>
     </div>
     <div style='padding:28px;'>
-        <h2 style='color:#003087;'>¡Bienvenido, <strong>{usuario.usuario}</strong>!</h2>
+        <h2 style='color:#003087;'>Bienvenido, <strong>{usuario.usuario}</strong>!</h2>
         <p style='color:#333; font-size:15px;'>Tu registro en la plataforma <strong>UMG Basic Rover 2.0</strong> fue exitoso.</p>
-        <p style='color:#333; font-size:15px;'>Adjunto encontrarás tu <strong>credencial de acceso en formato PDF</strong>, firmada electrónicamente con tu información y código QR de acceso.</p>
+        <p style='color:#333; font-size:15px;'>Adjunto encontraras tu <strong>credencial de acceso en formato PDF</strong>, firmada electronicamente con tu informacion y codigo QR de acceso.</p>
         <div style='background:#f0f4ff; border-left:4px solid #003087; padding:14px; margin:20px 0; border-radius:4px;'>
-            <p style='margin:0; font-size:13px; color:#555;'><strong>Firma Electrónica:</strong><br/>
-            <code style='font-size:11px; word-break:break-all;'>{(firma.Length > 32 ? firma[..32] + "..." : firma)}</code></p>
+            <p style='margin:0; font-size:13px; color:#555;'><strong>Firma Electronica:</strong><br/>
+            <code style='font-size:11px; word-break:break-all;'>{firma_display}</code></p>
         </div>
-        <p style='color:#555; font-size:13px;'>Usa tu nickname <strong>{usuario.usuario}</strong> y contraseña para ingresar a la plataforma.</p>
+        <p style='color:#555; font-size:13px;'>Usa tu nickname <strong>{usuario.usuario}</strong> y contrasena para ingresar a la plataforma.</p>
     </div>
     <div style='background:#003087; padding:16px; text-align:center;'>
-        <p style='color:#aaa; font-size:12px; margin:0;'>UMG Ingeniería en Sistemas — Compiladores 2026</p>
+        <p style='color:#aaa; font-size:12px; margin:0;'>UMG Ingenieria en Sistemas - Compiladores 2026</p>
     </div>
 </div>
 </body>
 </html>";
 
-            var msg = SendGrid.Helpers.Mail.MailHelper.CreateSingleEmail(from, to, subject, "", html_body);
-
+            var msg     = SendGrid.Helpers.Mail.MailHelper.CreateSingleEmail(from, to, subject, "", html_body);
             var pdf_b64 = Convert.ToBase64String(pdf_bytes);
             msg.AddAttachment($"credencial_{usuario.usuario}.pdf", pdf_b64, "application/pdf");
 
-            var response = await client.SendEmailAsync(msg);
-            var enviado = (int)response.StatusCode >= 200 && (int)response.StatusCode < 300;
+            _logger.LogInformation("[CREDENTIAL] Enviando email a: {email} via SendGrid...", usuario.email);
+            var response    = await client.SendEmailAsync(msg);
+            var status_code = (int)response.StatusCode;
+            var enviado     = status_code >= 200 && status_code < 300;
+
+            if (enviado)
+            {
+                _logger.LogInformation("[CREDENTIAL] ✅ Email enviado OK a: {email} | HTTP {s}", usuario.email, status_code);
+            }
+            else
+            {
+                var body = await response.Body.ReadAsStringAsync();
+                _logger.LogError("[CREDENTIAL] ❌ SendGrid rechazo. HTTP {s} | Body: {b}", status_code, body);
+            }
 
             await RegistrarNotificacionAsync(usuario.id, "credencial_pdf", "email",
                 $"Credencial PDF — {usuario.usuario}", enviado ? "enviado" : "error", credencial_id);
 
-            _logger.LogInformation("[CREDENTIAL] ✅ Email SendGrid enviado a: {email} | Status: {s}", usuario.email, response.StatusCode);
             return enviado;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[CREDENTIAL] ❌ Error al enviar email a: {email}", usuario.email);
+            _logger.LogError(ex, "[CREDENTIAL] ❌ Excepcion al enviar email a: {email}", usuario.email);
             await RegistrarNotificacionAsync(usuario.id, "credencial_pdf", "email",
                 $"Credencial PDF — {usuario.usuario}", "error", credencial_id);
             return false;
