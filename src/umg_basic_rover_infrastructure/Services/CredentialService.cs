@@ -19,6 +19,7 @@ using umg_basic_rover_application.DTOs;
 using umg_basic_rover_domain.entities;
 using umg_basic_rover_infrastructure.persistence.context;
 
+
 namespace umg_basic_rover_infrastructure.Services;
 
 public class CredentialService : ICredentialService
@@ -26,12 +27,14 @@ public class CredentialService : ICredentialService
     private readonly rover_db_context _db;
     private readonly IConfiguration _config;
     private readonly ILogger<CredentialService> _logger;
+    private readonly IWhatsAppService _whatsAppService;
 
-    public CredentialService(rover_db_context db, IConfiguration config, ILogger<CredentialService> logger)
+    public CredentialService(rover_db_context db, IConfiguration config, ILogger<CredentialService> logger,IWhatsAppService whatsAppService)
     {
         _db = db;
         _config = config;
         _logger = logger;
+        _whatsAppService = whatsAppService;
     }
 
     public async Task<CredentialResponse> GenerarYEnviarAsync(int usuario_id)
@@ -605,49 +608,64 @@ public class CredentialService : ICredentialService
     }
 
     // ─────────────────────────────────────────────────────────
-    // WHATSAPP (TWILIO)
+    // WHATSAPP
     // ─────────────────────────────────────────────────────────
     private async Task<bool> EnviarWhatsAppAsync(user_entity usuario, byte[] pdf_bytes, int credencial_id)
     {
         try
         {
-            var account_sid = _config["Twilio:AccountSid"];
-            var auth_token = _config["Twilio:AuthToken"];
-            var from_wa = _config["Twilio:WhatsAppFrom"] ?? "whatsapp:+14155238886";
-
-            if (string.IsNullOrEmpty(account_sid) || string.IsNullOrEmpty(auth_token))
+            if (string.IsNullOrWhiteSpace(usuario.telefono))
             {
-                _logger.LogWarning("[CREDENTIAL] Twilio no configurado. Saltando WhatsApp.");
+                _logger.LogWarning("[CREDENTIAL] Usuario sin telefono. Saltando WhatsApp.");
                 return false;
             }
 
-            Twilio.TwilioClient.Init(account_sid, auth_token);
+            var mensaje = $"""
+    🏁 UMG Basic Rover 2.0
 
-            var telefono_wa = usuario.telefono.StartsWith("+") ? usuario.telefono : $"+{usuario.telefono}";
+    Hola {usuario.usuario}, tu registro fue exitoso.
 
-            var message = await Twilio.Rest.Api.V2010.Account.MessageResource.CreateAsync(
-                body: $"🏁 *UMG Basic Rover 2.0*\n\n¡Hola *{usuario.usuario}*! Tu registro fue exitoso.\n\nTu credencial de acceso ha sido generada. La recibirás también en tu correo *{usuario.email}* con el PDF adjunto.\n\n✅ _Universidad Mariano Gálvez — Ingeniería en Sistemas 2026_",
-                from: new Twilio.Types.PhoneNumber(from_wa),
-                to: new Twilio.Types.PhoneNumber($"whatsapp:{telefono_wa}")
+    Adjunto encontrarás tu credencial PDF de acceso.
+    También fue enviada a tu correo: {usuario.email}
+
+    ✅ Universidad Mariano Gálvez — Ingeniería en Sistemas 2026
+    """;
+
+            var enviado = await _whatsAppService.SendPdfAsync(
+                usuario.telefono,
+                pdf_bytes,
+                $"credencial_{usuario.usuario}.pdf",
+                mensaje
             );
 
-            var enviado = message.Status != Twilio.Rest.Api.V2010.Account.MessageResource.StatusEnum.Failed;
+            await RegistrarNotificacionAsync(
+                usuario.id,
+                "credencial_pdf",
+                "whatsapp",
+                "Credencial generada — bienvenida",
+                enviado ? "enviado" : "error",
+                credencial_id
+            );
 
-            await RegistrarNotificacionAsync(usuario.id, "credencial_pdf", "whatsapp",
-                "Credencial generada — bienvenida", enviado ? "enviado" : "error", credencial_id);
-
-            _logger.LogInformation("[CREDENTIAL] WhatsApp {status} a: {tel}", message.Status, telefono_wa);
+            _logger.LogInformation("[CREDENTIAL] WhatsApp enviado={ok} a: {tel}", enviado, usuario.telefono);
             return enviado;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[CREDENTIAL] ❌ Error WhatsApp a: {tel}", usuario.telefono);
-            await RegistrarNotificacionAsync(usuario.id, "credencial_pdf", "whatsapp",
-                "Credencial generada", "error", credencial_id);
+            _logger.LogError(ex, "[CREDENTIAL] Error WhatsApp a: {tel}", usuario.telefono);
+
+            await RegistrarNotificacionAsync(
+                usuario.id,
+                "credencial_pdf",
+                "whatsapp",
+                "Credencial generada",
+                "error",
+                credencial_id
+            );
+
             return false;
         }
     }
-
     // ─────────────────────────────────────────────────────────
     // HISTORIAL NOTIFICACIONES
     // ─────────────────────────────────────────────────────────
