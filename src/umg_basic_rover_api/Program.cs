@@ -118,6 +118,18 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IRecaptchaService, RecaptchaService>();
 
+builder.Services.AddHttpClient<IWhatsAppService, WhatsAppWebService>(client =>
+{
+    var baseUrl = builder.Configuration["WhatsAppWeb:BaseUrl"];
+
+    if (!string.IsNullOrWhiteSpace(baseUrl))
+    {
+        client.BaseAddress = new Uri(baseUrl);
+    }
+
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
+
 // Compiler
 builder.Services.AddScoped<ICompilerService, CompilerService>();
 
