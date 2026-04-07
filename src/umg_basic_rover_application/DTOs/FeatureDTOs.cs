@@ -49,6 +49,7 @@ public class UpdateFileRequest
 
     [MaxLength(300)]
     public string? comentario { get; set; }
+    public bool    guardar_historial { get; set; } = false;
 }
 
 public class FileResponse

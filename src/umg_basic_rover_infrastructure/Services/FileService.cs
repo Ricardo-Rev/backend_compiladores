@@ -102,36 +102,38 @@ public class FileService : IFileService
                                 && a.activo)
             ?? throw new KeyNotFoundException($"Archivo {archivo_id} no encontrado.");
 
-        // ── Paso 1: guardar snapshot del contenido ACTUAL antes de tocarlo ──
-        var contenido_anterior = archivo.contenido;
-        var version_anterior   = archivo.version;
+        var version_anterior = archivo.version;
 
-        // ── Paso 2: insertar historial con el snapshot ──────────────────────
-        _db.historial_archivos.Add(new historial_archivo_entity
+        // Solo insertar en historial si el código compiló exitosamente
+        if (request.guardar_historial)
         {
-            archivo_id     = archivo.id,
-            usuario_id     = usuario_id,
-            version        = version_anterior,
-            contenido      = contenido_anterior,   // ← string copiado, no referencia
-            comentario     = request.comentario ?? $"Auto-guardado v{version_anterior}",
-            fecha_guardado = DateTime.Now
-        });
+            var contenido_anterior = archivo.contenido;
 
-        // ── Paso 3: guardar el historial PRIMERO ────────────────────────────
-        await _db.SaveChangesAsync();
+            _db.historial_archivos.Add(new historial_archivo_entity
+            {
+                archivo_id     = archivo.id,
+                usuario_id     = usuario_id,
+                version        = version_anterior,
+                contenido      = contenido_anterior,
+                comentario     = request.comentario ?? $"Compilación exitosa v{version_anterior}",
+                fecha_guardado = DateTime.Now
+            });
 
-        // ── Paso 4: ahora sí modificar el archivo principal ─────────────────
+            await _db.SaveChangesAsync();
+
+            archivo.version = version_anterior + 1;
+        }
+
+        // Siempre actualizar el contenido y fecha
         archivo.contenido          = request.contenido;
-        archivo.version            = version_anterior + 1;
         archivo.fecha_modificacion = DateTime.Now;
 
-        // ── Paso 5: guardar el archivo actualizado ──────────────────────────
         await _db.SaveChangesAsync();
 
-        _logger.LogInformation("[FILE] ✅ Archivo {id} actualizado a v{v}", archivo.id, archivo.version);
+        _logger.LogInformation("[FILE] ✅ Archivo {id} actualizado. Historial: {h}", 
+            archivo.id, request.guardar_historial);
         return MapToResponse(archivo);
     }
-
     public async Task EliminarAsync(int archivo_id, int usuario_id)
     {
         var archivo = await _db.archivos_umgpp
