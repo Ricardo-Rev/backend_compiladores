@@ -98,27 +98,36 @@ public class FileService : IFileService
     {
         var archivo = await _db.archivos_umgpp
             .FirstOrDefaultAsync(a => a.id == archivo_id
-                                   && a.usuario_id == usuario_id
-                                   && a.activo)
+                                && a.usuario_id == usuario_id
+                                && a.activo)
             ?? throw new KeyNotFoundException($"Archivo {archivo_id} no encontrado.");
 
-        // Guardar versión anterior en historial antes de actualizar
+        // ── Paso 1: guardar snapshot del contenido ACTUAL antes de tocarlo ──
+        var contenido_anterior = archivo.contenido;
+        var version_anterior   = archivo.version;
+
+        // ── Paso 2: insertar historial con el snapshot ──────────────────────
         _db.historial_archivos.Add(new historial_archivo_entity
         {
             archivo_id     = archivo.id,
             usuario_id     = usuario_id,
-            version        = archivo.version,
-            contenido      = archivo.contenido,
-            comentario     = request.comentario ?? $"Auto-guardado v{archivo.version}",
+            version        = version_anterior,
+            contenido      = contenido_anterior,   // ← string copiado, no referencia
+            comentario     = request.comentario ?? $"Auto-guardado v{version_anterior}",
             fecha_guardado = DateTime.Now
         });
 
-        // Actualizar archivo
+        // ── Paso 3: guardar el historial PRIMERO ────────────────────────────
+        await _db.SaveChangesAsync();
+
+        // ── Paso 4: ahora sí modificar el archivo principal ─────────────────
         archivo.contenido          = request.contenido;
-        archivo.version           += 1;
+        archivo.version            = version_anterior + 1;
         archivo.fecha_modificacion = DateTime.Now;
 
+        // ── Paso 5: guardar el archivo actualizado ──────────────────────────
         await _db.SaveChangesAsync();
+
         _logger.LogInformation("[FILE] ✅ Archivo {id} actualizado a v{v}", archivo.id, archivo.version);
         return MapToResponse(archivo);
     }
