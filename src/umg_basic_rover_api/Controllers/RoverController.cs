@@ -87,7 +87,7 @@ public class RoverController : ControllerBase
         {
             compilacion_id   = request.compilacion_id,
             usuario_id       = usuario_id,
-            lenguaje_destino = "json",
+            lenguaje_destino = compilacion.lenguaje_destino,
             estado_envio     = enviado ? "entregado" : "error",
             metodo_envio     = "inalambrico",
             mensaje_respuesta = enviado ? "Publicado en MQTT correctamente." : "Error al publicar en MQTT.",
