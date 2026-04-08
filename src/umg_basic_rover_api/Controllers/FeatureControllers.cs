@@ -299,6 +299,24 @@ public class FileController : ControllerBase
             return NotFound(new { error = ex.Message });
         }
     }
+    
+    [HttpGet("{id:int}/history")]
+    [ProducesResponseType(typeof(List<FileListResponse>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> History(int id)
+    {
+        var usuario_id = ObtenerUsuarioId();
+        if (usuario_id == 0) return Unauthorized();
+
+        try
+        {
+            var historial = await _file_service.ObtenerHistorialAsync(id, usuario_id);
+            return Ok(historial);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { error = ex.Message });
+        }
+    }
 
     /// <summary>Retorna el contenido completo de una versión específica del historial.</summary>
     [HttpGet("{id:int}/history/{version:int}")]
