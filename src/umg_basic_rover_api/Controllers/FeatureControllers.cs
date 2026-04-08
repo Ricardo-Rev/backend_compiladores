@@ -300,18 +300,35 @@ public class FileController : ControllerBase
         }
     }
 
-    /// <summary>Retorna el historial de versiones de un archivo.</summary>
-    [HttpGet("{id:int}/history")]
-    [ProducesResponseType(typeof(List<FileListResponse>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> History(int id)
+    /// <summary>Retorna el contenido completo de una versión específica del historial.</summary>
+    [HttpGet("{id:int}/history/{version:int}")]
+    [ProducesResponseType(typeof(FileResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> HistoryVersion(int id, int version)
     {
         var usuario_id = ObtenerUsuarioId();
         if (usuario_id == 0) return Unauthorized();
 
         try
         {
-            var historial = await _file_service.ObtenerHistorialAsync(id, usuario_id);
-            return Ok(historial);
+            var entrada = await _db.historial_archivos
+                .AsNoTracking()
+                .FirstOrDefaultAsync(h => h.archivo_id == id
+                                    && h.version    == version
+                                    && h.usuario_id == usuario_id)
+                ?? throw new KeyNotFoundException($"Versión {version} no encontrada.");
+
+            return Ok(new FileResponse
+            {
+                id                 = entrada.id,
+                nombre_archivo     = $"v{entrada.version}",
+                contenido          = entrada.contenido,
+                version            = entrada.version,
+                descripcion        = entrada.comentario,
+                es_coreografia     = false,
+                fecha_creacion     = entrada.fecha_guardado,
+                fecha_modificacion = entrada.fecha_guardado,
+            });
         }
         catch (KeyNotFoundException ex)
         {
