@@ -3,6 +3,7 @@ namespace umg_basic_rover_application.DTOs;
 public class RoverExecuteRequest
 {
     public int compilacion_id { get; set; }
+    public string lenguaje_destino { get; set; } = "python";
 }
 
 public class RoverExecuteResponse
