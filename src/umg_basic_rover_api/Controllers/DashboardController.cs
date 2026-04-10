@@ -378,8 +378,8 @@ public class DashboardController : ControllerBase
             _db.coreografias.Add(coreografia);
             await _db.SaveChangesAsync();
 
-            _logger.LogInformation("[DASHBOARD] Coreografía '{nombre}' creada por admin {id}.", dto.nombre, admin_id);
-
+            var safeNombreCreate = (dto.nombre ?? string.Empty).Replace("\r", string.Empty).Replace("\n", string.Empty);
+            _logger.LogInformation("[DASHBOARD] Coreografía '{nombre}' creada por admin {id}.", safeNombreCreate, admin_id);
             return StatusCode(201, new
             {
                 mensaje         = "Coreografía creada exitosamente.",
@@ -440,7 +440,8 @@ public class DashboardController : ControllerBase
 
             await _db.SaveChangesAsync();
 
-            _logger.LogInformation("[DASHBOARD] Coreografía {id} '{nombre}' actualizada.", id, coreografia.nombre);
+            var safeNombreUpdate = (coreografia.nombre ?? string.Empty).Replace("\r", string.Empty).Replace("\n", string.Empty);
+            _logger.LogInformation("[DASHBOARD] Coreografía {id} '{nombre}' actualizada.", id, safeNombreUpdate);
 
             return Ok(new
             {
