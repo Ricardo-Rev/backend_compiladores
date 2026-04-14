@@ -46,7 +46,7 @@ public class CompilerController : ControllerBase
         if (!modos.Contains(request.modo))
             return BadRequest(new { error = $"Modo inválido. Use: {string.Join(", ", modos)}" });
 
-        var lenguajes = new[] { "python", "csharp" };
+        var lenguajes = new[] { "python", "csharp", "java", "cpp", "arduino" };
         if (!lenguajes.Contains(request.lenguaje_destino))
             return BadRequest(new { error = $"Lenguaje inválido. Use: {string.Join(", ", lenguajes)}" });
 

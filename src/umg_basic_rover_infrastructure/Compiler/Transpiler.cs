@@ -163,4 +163,81 @@ public class Transpiler
         -1 => $"rover::activar_motor_derecho();   // {raw} → izquierda",
         _  => $"rover::activar_ambos_motores();   // {raw} → recto"
     };
+
+    // ── ARDUINO (SERIAL) ─────────────────────────────────────
+    // Genera comandos seriales listos para enviar desde
+    // la Raspberry Pi al Arduino UNO por USB (9600 baud).
+    // Formato esperado por procesarComando() en el firmware.
+    public string TranspilarAArduino(string nombre, List<InstruccionValidada> instrucciones)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"# Programa: {nombre} | UMG Basic Rover 2.0 | {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        sb.AppendLine($"# Enviar cada línea por Serial USB a 9600 baud al Arduino UNO");
+        sb.AppendLine($"# Esperar respuesta ACK: antes de enviar el siguiente comando");
+        sb.AppendLine();
+        foreach (var i in instrucciones.OrderBy(x => x.Orden))
+            sb.AppendLine(LineaArduino(i));
+        return sb.ToString();
+    }
+
+    // ── LÍNEAS ARDUINO ───────────────────────────────────────
+    private string LineaArduino(InstruccionValidada i) => i.Nombre switch
+    {
+        "avanzar_vlts" => $"AV_VLT:{i.ParametroN}",
+        "avanzar_ctms" => $"AV_CM:{i.ParametroN}",
+        "avanzar_mts"  => $"AV_MTS:{i.ParametroN}",
+        "girar"        => $"GR:{i.ParametroN ?? 0}",
+        "circulo"      => $"CIR:{i.ParametroR}",
+        "cuadrado"     => $"CUA:{i.ParametroL}",
+        "rotar"        => $"ROT:{i.ParametroN}",
+        "caminar"      => $"CAM:{i.ParametroN}",
+        "moonwalk"     => $"MWK:{i.ParametroN}",
+        "combinada"    => LineaArduinoCombinada(i.Raw),
+        _              => $"# desconocido: {i.Raw}"
+    };
+
+    // Instrucción combinada: girar(1) + avanzar_mts(3)
+    // Se separa en dos comandos seriales consecutivos
+    private string LineaArduinoCombinada(string raw)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"# combinada: {raw}");
+
+        // Extraer cada parte separada por '+'
+        var partes = raw.Split('+', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var parte in partes)
+        {
+            var p = parte.Trim().TrimEnd(';');
+            if (p.StartsWith("girar("))
+            {
+                var n = ExtraerParametro(p);
+                sb.AppendLine($"GR:{n}");
+            }
+            else if (p.StartsWith("avanzar_vlts("))
+            {
+                var n = ExtraerParametro(p);
+                sb.AppendLine($"AV_VLT:{n}");
+            }
+            else if (p.StartsWith("avanzar_ctms(") || p.StartsWith("avanzar_cms("))
+            {
+                var n = ExtraerParametro(p);
+                sb.AppendLine($"AV_CM:{n}");
+            }
+            else if (p.StartsWith("avanzar_mts("))
+            {
+                var n = ExtraerParametro(p);
+                sb.AppendLine($"AV_MTS:{n}");
+            }
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string ExtraerParametro(string instruccion)
+    {
+        var ini = instruccion.IndexOf('(');
+        var fin = instruccion.IndexOf(')');
+        if (ini < 0 || fin < 0) return "0";
+        return instruccion.Substring(ini + 1, fin - ini - 1).Trim();
+    }
 }

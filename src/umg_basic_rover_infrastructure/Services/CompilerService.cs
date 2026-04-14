@@ -118,7 +118,8 @@ public class CompilerService : ICompilerService
         {
             "csharp" => transpiler.TranspilarACSharp(nombre, instrucciones),
             "java"   => transpiler.TranspilarAJava(nombre, instrucciones),
-            "cpp"    => transpiler.TranspilarACpp(nombre, instrucciones),
+            "cpp"     => transpiler.TranspilarACpp(nombre, instrucciones),
+            "arduino" => transpiler.TranspilarAArduino(nombre, instrucciones),
             _        => transpiler.TranspilarAPython(nombre, instrucciones)
         };
 
