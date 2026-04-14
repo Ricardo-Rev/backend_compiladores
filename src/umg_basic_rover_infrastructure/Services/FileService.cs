@@ -98,31 +98,42 @@ public class FileService : IFileService
     {
         var archivo = await _db.archivos_umgpp
             .FirstOrDefaultAsync(a => a.id == archivo_id
-                                   && a.usuario_id == usuario_id
-                                   && a.activo)
+                                && a.usuario_id == usuario_id
+                                && a.activo)
             ?? throw new KeyNotFoundException($"Archivo {archivo_id} no encontrado.");
 
-        // Guardar versión anterior en historial antes de actualizar
-        _db.historial_archivos.Add(new historial_archivo_entity
-        {
-            archivo_id     = archivo.id,
-            usuario_id     = usuario_id,
-            version        = archivo.version,
-            contenido      = archivo.contenido,
-            comentario     = request.comentario ?? $"Auto-guardado v{archivo.version}",
-            fecha_guardado = DateTime.Now
-        });
+        var version_anterior = archivo.version;
 
-        // Actualizar archivo
+        // Solo insertar en historial si el código compiló exitosamente
+        if (request.guardar_historial)
+        {
+            var contenido_anterior = archivo.contenido;
+
+            _db.historial_archivos.Add(new historial_archivo_entity
+            {
+                archivo_id     = archivo.id,
+                usuario_id     = usuario_id,
+                version        = version_anterior,
+                contenido      = contenido_anterior,
+                comentario     = request.comentario ?? $"Compilación exitosa v{version_anterior}",
+                fecha_guardado = DateTime.Now
+            });
+
+            await _db.SaveChangesAsync();
+
+            archivo.version = version_anterior + 1;
+        }
+
+        // Siempre actualizar el contenido y fecha
         archivo.contenido          = request.contenido;
-        archivo.version           += 1;
         archivo.fecha_modificacion = DateTime.Now;
 
         await _db.SaveChangesAsync();
-        _logger.LogInformation("[FILE] ✅ Archivo {id} actualizado a v{v}", archivo.id, archivo.version);
+
+        _logger.LogInformation("[FILE] ✅ Archivo {id} actualizado. Historial: {h}", 
+            archivo.id, request.guardar_historial);
         return MapToResponse(archivo);
     }
-
     public async Task EliminarAsync(int archivo_id, int usuario_id)
     {
         var archivo = await _db.archivos_umgpp

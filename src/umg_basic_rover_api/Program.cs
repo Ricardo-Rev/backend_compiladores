@@ -6,6 +6,7 @@ using Microsoft.OpenApi.Models;
 using umg_basic_rover_application.Contracts;
 using umg_basic_rover_infrastructure.Services;
 using umg_basic_rover_infrastructure.persistence.context;
+using umg_basic_rover_infrastructure.Mqtt;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -117,6 +118,18 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IRecaptchaService, RecaptchaService>();
 
+builder.Services.AddHttpClient<IWhatsAppService, WhatsAppWebService>(client =>
+{
+    var baseUrl = builder.Configuration["WhatsAppWeb:BaseUrl"];
+
+    if (!string.IsNullOrWhiteSpace(baseUrl))
+    {
+        client.BaseAddress = new Uri(baseUrl);
+    }
+
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
+
 // Compiler
 builder.Services.AddScoped<ICompilerService, CompilerService>();
 
@@ -125,6 +138,9 @@ builder.Services.AddScoped<ICredentialService, CredentialService>();
 builder.Services.AddScoped<EmailVerificationService>();
 builder.Services.AddScoped<IFileService, FileService>();
 builder.Services.AddScoped<IChoreoService, ChoreoService>();
+
+// Rover MQTT
+builder.Services.AddSingleton<IMqttService, MqttService>();
 
 // Servicio de segmentación facial
 builder.Services.AddSingleton<FaceSegmentationService>(sp =>
