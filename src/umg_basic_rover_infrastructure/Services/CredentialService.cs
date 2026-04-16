@@ -243,7 +243,7 @@ public class CredentialService : ICredentialService
         {
             var assembly = System.Reflection.Assembly.GetExecutingAssembly();
             var resource = assembly.GetManifestResourceNames()
-                .FirstOrDefault(n => n.EndsWith("fondo_credencial.png", StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(n => n.EndsWith("fondo_credencial.jpg", StringComparison.OrdinalIgnoreCase));
 
             if (resource == null)
             {
