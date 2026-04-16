@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using QRCoder;
 using iText.Kernel.Geom;
 using iText.Kernel.Pdf;
+using iText.Kernel.Pdf.Action;
 using iText.Layout;
 using iText.Layout.Element;
 using iText.Layout.Properties;
@@ -56,9 +57,9 @@ public class CredentialService : ICredentialService
         var qr_bytes = GenerarQrBytes(qr_data);
 
         var pdf_bytes = GenerarPdf(usuario, qr_bytes, imagen_referencia);
-        var pdf_b64 = Convert.ToBase64String(pdf_bytes);
 
-        var firma = await FirmarPdfConApiAsync(pdf_bytes);
+        var (firma, pdf_firmado) = await FirmarPdfConApiAsync(pdf_bytes);
+        var pdf_b64 = Convert.ToBase64String(pdf_firmado);
 
         var credencial = new credencial_pdf_entity
         {
@@ -79,8 +80,8 @@ public class CredentialService : ICredentialService
         bool email_ok = false;
         bool whatsapp_ok = false;
 
-        email_ok = await EnviarEmailAsync(usuario, pdf_bytes, firma, credencial.id);
-        whatsapp_ok = await EnviarWhatsAppAsync(usuario, pdf_bytes, credencial.id);
+        email_ok = await EnviarEmailAsync(usuario, pdf_firmado, firma, credencial.id);
+        whatsapp_ok = await EnviarWhatsAppAsync(usuario, pdf_firmado, credencial.id);
 
         credencial.estado_envio = (email_ok || whatsapp_ok) ? "enviado" : "error";
         credencial.fecha_envio = DateTime.Now;
@@ -231,6 +232,35 @@ public class CredentialService : ICredentialService
     doc.Add(new Paragraph("SHA-256 · AES-256 · UMG Basic Rover 2.0-2026")
         .SetFont(fontNormal).SetFontSize(9f).SetFontColor(grisFirma)
         .SetFixedPosition(70.0f, 215.68f, 454.0f));
+
+    // ── CUADRO FIRMA + HIPERVÍNCULO AL VERIFICADOR ───────
+    // Izquierda: cuadro con datos de la firma (estilo candado)
+    var cyan_link  = new DeviceRgb(56, 189, 248);
+    var gris_box   = new DeviceRgb(200, 200, 200);
+
+    doc.Add(new Paragraph("🔒 NextTech Solutions | UMG")
+        .SetFont(fontNormal).SetFontSize(7f).SetFontColor(gris_box)
+        .SetFixedPosition(70f, 192f, 180f));
+
+    doc.Add(new Paragraph($"Date: {DateTime.Now:yyyy.MM.dd}")
+        .SetFont(fontNormal).SetFontSize(7f).SetFontColor(gris_box)
+        .SetFixedPosition(70f, 181f, 180f));
+
+    doc.Add(new Paragraph("Reason: UMG Basic Rover 2.0-2026")
+        .SetFont(fontNormal).SetFontSize(7f).SetFontColor(gris_box)
+        .SetFixedPosition(70f, 170f, 180f));
+
+    // Derecha: hipervínculo clickeable al verificador
+    var link_verificador = new Link(
+        "✅ Verificar autenticidad del documento\nnexttechsolutionspc.xyz/verify-credential",
+        PdfAction.CreateURI("https://www.nexttechsolutionspc.xyz/verify-credential")
+    );
+    doc.Add(new Paragraph().Add(
+        link_verificador
+            .SetFontColor(cyan_link)
+            .SetFont(fontNormal)
+            .SetFontSize(7.5f))
+        .SetFixedPosition(265f, 174f, 260f));
 
     doc.Close();
     return ms.ToArray();
@@ -687,7 +717,7 @@ public class CredentialService : ICredentialService
         await _db.SaveChangesAsync();
     }
 
-    private async Task<string> FirmarPdfConApiAsync(byte[] pdf_bytes)
+    private async Task<(string firma, byte[] pdf_firmado)> FirmarPdfConApiAsync(byte[] pdf_bytes)
     {
         try
         {
@@ -710,17 +740,24 @@ public class CredentialService : ICredentialService
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("[CREDENTIAL] API firma respondió {s} — PDF no registrado.", response.StatusCode);
-                return string.Empty;
+                _logger.LogWarning("[CREDENTIAL] API firma respondió {s}.", response.StatusCode);
+                return ("", pdf_bytes);
             }
 
-            _logger.LogInformation("[CREDENTIAL] ✅ PDF firmado y registrado en API de firma.");
-            return "RSA-2048-SHA256-PKCS1";
+            var json        = await response.Content.ReadAsStringAsync();
+            var doc         = JsonDocument.Parse(json);
+            var pdf_b64     = doc.RootElement.GetProperty("pdf_firmado_b64").GetString() ?? "";
+            var pdf_firmado = pdf_b64.Length > 0
+                ? Convert.FromBase64String(pdf_b64)
+                : pdf_bytes;
+
+            _logger.LogInformation("[CREDENTIAL] ✅ PDF firmado con X.509 embebido.");
+            return ("RSA-2048-SHA256-CMS-X509", pdf_firmado);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[CREDENTIAL] ❌ Error al llamar API firma.");
-            return string.Empty;
+            return ("", pdf_bytes);
         }
     }
 
