@@ -157,7 +157,7 @@ public class CredentialService : ICredentialService
     CargarFondo(doc, W, H);
 
     // FOTO — reducida y centrada en recuadro
-    DibujarImagenBase64(doc, foto_facial_base64, 60.0f, 566.0f, 100.0f, 115.0f);
+    DibujarImagenBase64(doc, foto_facial_base64, 67.0f, 566.0f, 100.0f, 115.0f);
 
     // QR — perfecto, sin cambios
     doc.Add(new Image(ImageDataFactory.Create(qr_bytes))
