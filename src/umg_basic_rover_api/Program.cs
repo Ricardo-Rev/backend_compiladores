@@ -7,7 +7,8 @@ using umg_basic_rover_application.Contracts;
 using umg_basic_rover_infrastructure.Services;
 using umg_basic_rover_infrastructure.persistence.context;
 using umg_basic_rover_infrastructure.Mqtt;
-using umg_basic_rover_api.Hubs;                          // ← NUEVO: SignalR Hub
+using umg_basic_rover_api.Hubs;        // ← NUEVO
+using umg_basic_rover_api.Services;    // ← NUEVO
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -80,8 +81,8 @@ builder.Services.AddAuthentication(options =>
         ClockSkew                = TimeSpan.Zero
     };
 
-    // ← NUEVO: necesario para que SignalR pueda leer el JWT
-    // desde el query string cuando el WebSocket no puede enviar headers
+    // ← NUEVO: SignalR necesita leer el JWT desde el query string
+    // porque los WebSockets no pueden enviar headers de autorización.
     options.Events = new JwtBearerEvents
     {
         OnMessageReceived = context =>
@@ -121,7 +122,7 @@ builder.Services.AddCors(options =>
             )
             .AllowAnyHeader()
             .AllowAnyMethod()
-            .AllowCredentials();   // ← ya estaba, es obligatorio para SignalR
+            .AllowCredentials();
     });
 });
 
@@ -153,11 +154,15 @@ builder.Services.AddScoped<EmailVerificationService>();
 builder.Services.AddScoped<IFileService, FileService>();
 builder.Services.AddScoped<IChoreoService, ChoreoService>();
 
-// Rover MQTT
-builder.Services.AddSingleton<IMqttService, MqttService>();
-
-// ← NUEVO: SignalR para WebSocket en tiempo real con el frontend
+// ← NUEVO: SignalR
 builder.Services.AddSignalR();
+
+// ← NUEVO: notificador que conecta MQTT con SignalR
+// Singleton porque MqttService también es Singleton
+builder.Services.AddSingleton<IRoverHubNotifier, RoverHubNotifier>();
+
+// Rover MQTT — debe ir DESPUÉS de IRoverHubNotifier para que DI lo resuelva
+builder.Services.AddSingleton<IMqttService, MqttService>();
 
 // Servicio de segmentación facial
 builder.Services.AddSingleton<FaceSegmentationService>(sp =>
@@ -187,13 +192,13 @@ builder.Services.AddSwaggerGen(c =>
 
     var jwt_scheme = new OpenApiSecurityScheme
     {
-        Scheme        = "bearer",
-        BearerFormat  = "JWT",
-        Name          = "Authorization",
-        In            = ParameterLocation.Header,
-        Type          = SecuritySchemeType.Http,
-        Description   = "Ingresa tu token JWT (sin el prefijo 'Bearer').",
-        Reference     = new OpenApiReference
+        Scheme       = "bearer",
+        BearerFormat = "JWT",
+        Name         = "Authorization",
+        In           = ParameterLocation.Header,
+        Type         = SecuritySchemeType.Http,
+        Description  = "Ingresa tu token JWT (sin el prefijo 'Bearer').",
+        Reference    = new OpenApiReference
         {
             Id   = JwtBearerDefaults.AuthenticationScheme,
             Type = ReferenceType.SecurityScheme
@@ -299,10 +304,10 @@ app.UseAuthorization();
 app.MapControllers();
 
 // ─────────────────────────────────────────────
-// 13. SIGNALR HUB — WebSocket tiempo real con el frontend  ← NUEVO
-// URL que usa el frontend: wss://tu-backend.railway.app/hubs/rover
+// 13. SIGNALR HUB ← NUEVO
+// Frontend conecta a: wss://tu-backend.railway.app/hubs/rover
 // ─────────────────────────────────────────────
-app.MapHub<RoverHub>("/hubs/rover");                     // ← NUEVO
+app.MapHub<RoverHub>("/hubs/rover");
 
 // ─────────────────────────────────────────────
 // 14. HEALTH CHECKS

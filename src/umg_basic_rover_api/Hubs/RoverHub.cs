@@ -5,12 +5,12 @@ namespace umg_basic_rover_api.Hubs;
 /// <summary>
 /// Hub de SignalR para comunicación en tiempo real con el frontend.
 ///
-/// El frontend se conecta a:  wss://tu-backend.railway.app/hubs/rover
+/// El frontend conecta a:  wss://tu-backend.railway.app/hubs/rover
 ///
-/// Mensajes que recibe el frontend:
-///   "RoverStatus"  → { status, compilacion_id, timestamp }
-///   "RoverAck"     → { estado, mensaje, compilacion_id, timestamp }
-///   "RoverProgreso"→ { compilacion_id, progreso, total }
+/// Eventos que recibe el frontend:
+///   "RoverStatus"   → { status, compilacion_id, timestamp }
+///   "RoverAck"      → { estado, mensaje, compilacion_id, timestamp }
+///   "RoverProgreso" → { compilacion_id, progreso, total }
 /// </summary>
 public class RoverHub : Hub
 {

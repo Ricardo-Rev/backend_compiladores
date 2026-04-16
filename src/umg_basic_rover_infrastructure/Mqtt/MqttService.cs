@@ -1,29 +1,31 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MQTTnet;
 using MQTTnet.Client;
-using umg_basic_rover_api.Hubs;
 using umg_basic_rover_application.Contracts;
 
 namespace umg_basic_rover_infrastructure.Mqtt;
 
 /// <summary>
 /// Servicio MQTT que:
-///   1. Publica instrucciones al rover (rover/file/send)
-///   2. Publica STOP de emergencia (rover/stop)
+///   1. Publica instrucciones al rover  (rover/file/send)
+///   2. Publica STOP de emergencia      (rover/stop)
 ///   3. Suscribe a rover/ack y rover/status
-///   4. Reenvía esos mensajes al frontend via SignalR (WebSocket)
+///   4. Reenvía esos mensajes al frontend via IRoverHubNotifier → SignalR
+///
+/// CORRECCIÓN: Ya no referencia IHubContext ni RoverHub directamente.
+/// Usa IRoverHubNotifier (interfaz de Application) para romper la
+/// dependencia circular Infrastructure → API.
 /// </summary>
 public class MqttService : IMqttService, IAsyncDisposable
 {
-    private readonly IMqttClient            _client;
-    private readonly MqttClientOptions      _options;
-    private readonly ILogger<MqttService>   _logger;
-    private readonly IHubContext<RoverHub>  _hub;
+    private readonly IMqttClient          _client;
+    private readonly MqttClientOptions    _options;
+    private readonly ILogger<MqttService> _logger;
+    private readonly IRoverHubNotifier    _hub;      // ← interfaz, no IHubContext
 
     private const string TOPIC_FILE   = "rover/file/send";
     private const string TOPIC_STOP   = "rover/stop";
@@ -40,9 +42,9 @@ public class MqttService : IMqttService, IAsyncDisposable
     public bool EstaConectado => _client.IsConnected;
 
     public MqttService(
-        IConfiguration       config,
-        ILogger<MqttService> logger,
-        IHubContext<RoverHub> hub)
+        IConfiguration        config,
+        ILogger<MqttService>  logger,
+        IRoverHubNotifier     hub)       // ← inyección de la interfaz
     {
         _logger = logger;
         _hub    = hub;
@@ -63,21 +65,25 @@ public class MqttService : IMqttService, IAsyncDisposable
             .WithCleanSession()
             .Build();
 
-        // Registrar handler de mensajes entrantes ANTES de conectar
+        // Handler de mensajes entrantes — registrar antes de conectar
         _client.ApplicationMessageReceivedAsync += OnMensajeRecibidoAsync;
     }
 
     private async Task AsegurarConexionAsync()
     {
         if (_client.IsConnected) return;
+
         try
         {
             await _client.ConnectAsync(_options);
             _logger.LogInformation("[MQTT] Conectado al broker.");
 
             // Suscribirse a los topics de respuesta del rover
-            await _client.SubscribeAsync(TOPIC_ACK,    MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce);
-            await _client.SubscribeAsync(TOPIC_STATUS, MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce);
+            await _client.SubscribeAsync(TOPIC_ACK,
+                MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce);
+            await _client.SubscribeAsync(TOPIC_STATUS,
+                MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce);
+
             _logger.LogInformation("[MQTT] Suscrito a {ack} y {status}", TOPIC_ACK, TOPIC_STATUS);
         }
         catch (Exception ex)
@@ -88,15 +94,17 @@ public class MqttService : IMqttService, IAsyncDisposable
     }
 
     /// <summary>
-    /// Handler de mensajes entrantes MQTT.
-    /// Reenvía rover/ack y rover/status al frontend via SignalR.
+    /// Mensajes entrantes de MQTT → reenviar al frontend vía SignalR.
+    /// rover/ack    → "RoverAck" o "RoverProgreso" según el contenido
+    /// rover/status → "RoverStatus"
     /// </summary>
     private async Task OnMensajeRecibidoAsync(MqttApplicationMessageReceivedEventArgs e)
     {
         var topic   = e.ApplicationMessage.Topic;
-        var payload = Encoding.UTF8.GetString(e.ApplicationMessage.Payload ?? Array.Empty<byte>());
+        var payload = Encoding.UTF8.GetString(
+            e.ApplicationMessage.Payload ?? Array.Empty<byte>());
 
-        _logger.LogDebug("[MQTT→WS] Topic={topic} Payload={payload}", topic, payload);
+        _logger.LogDebug("[MQTT→WS] {topic}: {payload}", topic, payload);
 
         try
         {
@@ -104,24 +112,25 @@ public class MqttService : IMqttService, IAsyncDisposable
 
             if (topic == TOPIC_ACK)
             {
-                // Determinar si es un progreso o un ACK final
                 if (data.TryGetProperty("progreso", out _))
-                    await _hub.Clients.All.SendAsync("RoverProgreso", data);
+                    await _hub.NotificarProgresoAsync(data);
                 else
-                    await _hub.Clients.All.SendAsync("RoverAck", data);
+                    await _hub.NotificarAckAsync(data);
             }
             else if (topic == TOPIC_STATUS)
             {
-                await _hub.Clients.All.SendAsync("RoverStatus", data);
+                await _hub.NotificarStatusAsync(data);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[MQTT→WS] Error procesando mensaje del rover.");
+            _logger.LogWarning(ex, "[MQTT→WS] Error procesando mensaje entrante.");
         }
     }
 
-    public async Task<bool> PublicarEjecucionAsync(int compilacion_id, List<RoverInstruccionPayload> instrucciones)
+    public async Task<bool> PublicarEjecucionAsync(
+        int compilacion_id,
+        List<RoverInstruccionPayload> instrucciones)
     {
         try
         {
@@ -141,7 +150,8 @@ public class MqttService : IMqttService, IAsyncDisposable
             var message = new MqttApplicationMessageBuilder()
                 .WithTopic(TOPIC_FILE)
                 .WithPayload(Encoding.UTF8.GetBytes(json))
-                .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
+                .WithQualityOfServiceLevel(
+                    MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
                 .Build();
 
             await _client.PublishAsync(message);
@@ -161,11 +171,14 @@ public class MqttService : IMqttService, IAsyncDisposable
         try
         {
             await AsegurarConexionAsync();
+
             var message = new MqttApplicationMessageBuilder()
                 .WithTopic(TOPIC_STOP)
                 .WithPayload(Encoding.UTF8.GetBytes("{\"command\":\"STOP\"}"))
-                .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
+                .WithQualityOfServiceLevel(
+                    MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
                 .Build();
+
             await _client.PublishAsync(message);
             _logger.LogInformation("[MQTT] STOP publicado.");
             return true;
@@ -184,6 +197,7 @@ public class MqttService : IMqttService, IAsyncDisposable
         _client.Dispose();
     }
 
+    // DTO interno para serializar con la clave "params" correcta
     private class InstruccionMqttDto
     {
         public string comando { get; set; } = string.Empty;
