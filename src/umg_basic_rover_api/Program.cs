@@ -7,6 +7,7 @@ using umg_basic_rover_application.Contracts;
 using umg_basic_rover_infrastructure.Services;
 using umg_basic_rover_infrastructure.persistence.context;
 using umg_basic_rover_infrastructure.Mqtt;
+using umg_basic_rover_api.Hubs;                          // ← NUEVO: SignalR Hub
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,7 +26,6 @@ builder.WebHost.ConfigureKestrel(serverOptions =>
     serverOptions.ListenAnyIP(int.Parse(port));
 });
 
-// 🔥 Compatibilidad adicional (Railway / Docker / fallback)
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
 // ─────────────────────────────────────────────
@@ -61,23 +61,40 @@ var jwt_key = builder.Configuration["Jwt:Key"]
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme    = JwtBearerDefaults.AuthenticationScheme;
 })
 .AddJwtBearer(options =>
 {
     options.RequireHttpsMetadata = false;
-    options.SaveToken = true;
+    options.SaveToken            = true;
 
     options.TokenValidationParameters = new TokenValidationParameters
     {
-        ValidateIssuer = true,
-        ValidateAudience = true,
+        ValidateIssuer           = true,
+        ValidateAudience         = true,
         ValidateIssuerSigningKey = true,
-        ValidateLifetime = true,
-        ValidIssuer = builder.Configuration["Jwt:Issuer"],
-        ValidAudience = builder.Configuration["Jwt:Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt_key)),
-        ClockSkew = TimeSpan.Zero
+        ValidateLifetime         = true,
+        ValidIssuer              = builder.Configuration["Jwt:Issuer"],
+        ValidAudience            = builder.Configuration["Jwt:Audience"],
+        IssuerSigningKey         = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt_key)),
+        ClockSkew                = TimeSpan.Zero
+    };
+
+    // ← NUEVO: necesario para que SignalR pueda leer el JWT
+    // desde el query string cuando el WebSocket no puede enviar headers
+    options.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            var accessToken = context.Request.Query["access_token"];
+            var path        = context.HttpContext.Request.Path;
+            if (!string.IsNullOrEmpty(accessToken) &&
+                path.StartsWithSegments("/hubs"))
+            {
+                context.Token = accessToken;
+            }
+            return Task.CompletedTask;
+        }
     };
 });
 
@@ -85,6 +102,7 @@ builder.Services.AddAuthorization();
 
 // ─────────────────────────────────────────────
 // 4. CORS (FRONTEND LOCAL + VERCEL)
+// AllowCredentials() es OBLIGATORIO para SignalR
 // ─────────────────────────────────────────────
 builder.Services.AddCors(options =>
 {
@@ -98,12 +116,12 @@ builder.Services.AddCors(options =>
                 "http://localhost:5174",
                 "http://localhost:8080",
                 "https://frontend-compiladores.vercel.app",
-                "https://nexttechsolutionspc.xyz",           
-                "https://www.nexttechsolutionspc.xyz"       
+                "https://nexttechsolutionspc.xyz",
+                "https://www.nexttechsolutionspc.xyz"
             )
             .AllowAnyHeader()
             .AllowAnyMethod()
-            .AllowCredentials();
+            .AllowCredentials();   // ← ya estaba, es obligatorio para SignalR
     });
 });
 
@@ -121,12 +139,8 @@ builder.Services.AddScoped<IRecaptchaService, RecaptchaService>();
 builder.Services.AddHttpClient<IWhatsAppService, WhatsAppWebService>(client =>
 {
     var baseUrl = builder.Configuration["WhatsAppWeb:BaseUrl"];
-
     if (!string.IsNullOrWhiteSpace(baseUrl))
-    {
         client.BaseAddress = new Uri(baseUrl);
-    }
-
     client.Timeout = TimeSpan.FromSeconds(60);
 });
 
@@ -141,6 +155,9 @@ builder.Services.AddScoped<IChoreoService, ChoreoService>();
 
 // Rover MQTT
 builder.Services.AddSingleton<IMqttService, MqttService>();
+
+// ← NUEVO: SignalR para WebSocket en tiempo real con el frontend
+builder.Services.AddSignalR();
 
 // Servicio de segmentación facial
 builder.Services.AddSingleton<FaceSegmentationService>(sp =>
@@ -163,28 +180,27 @@ builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo
     {
-        Title = "UMG Basic Rover 2.0 — API",
-        Version = "v1",
+        Title       = "UMG Basic Rover 2.0 — API",
+        Version     = "v1",
         Description = "Compilador UMG++ | Auth con reCAPTCHA | Editor | Coreografías | Dashboard"
     });
 
     var jwt_scheme = new OpenApiSecurityScheme
     {
-        Scheme = "bearer",
-        BearerFormat = "JWT",
-        Name = "Authorization",
-        In = ParameterLocation.Header,
-        Type = SecuritySchemeType.Http,
-        Description = "Ingresa tu token JWT (sin el prefijo 'Bearer').",
-        Reference = new OpenApiReference
+        Scheme        = "bearer",
+        BearerFormat  = "JWT",
+        Name          = "Authorization",
+        In            = ParameterLocation.Header,
+        Type          = SecuritySchemeType.Http,
+        Description   = "Ingresa tu token JWT (sin el prefijo 'Bearer').",
+        Reference     = new OpenApiReference
         {
-            Id = JwtBearerDefaults.AuthenticationScheme,
+            Id   = JwtBearerDefaults.AuthenticationScheme,
             Type = ReferenceType.SecurityScheme
         }
     };
 
     c.AddSecurityDefinition(jwt_scheme.Reference.Id, jwt_scheme);
-
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         { jwt_scheme, Array.Empty<string>() }
@@ -204,11 +220,11 @@ app.UseExceptionHandler(error_app =>
     error_app.Run(async context =>
     {
         var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
-        var error = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
+        var error  = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
 
         logger.LogError(error, "[GLOBAL-ERROR] Path={p}", context.Request.Path);
 
-        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        context.Response.StatusCode  = StatusCodes.Status500InternalServerError;
         context.Response.ContentType = "application/json";
 
         await context.Response.WriteAsJsonAsync(new
@@ -219,7 +235,7 @@ app.UseExceptionHandler(error_app =>
 });
 
 // ─────────────────────────────────────────────
-// 9. SWAGGER (SOLO DESARROLLO)
+// 9. SWAGGER
 // ─────────────────────────────────────────────
 app.UseSwagger();
 app.UseSwaggerUI(c =>
@@ -250,7 +266,7 @@ app.Use(async (context, next) =>
         var token = auth_header[7..].Trim();
 
         var jwt = context.RequestServices.GetRequiredService<IJwtTokenService>();
-        var db = context.RequestServices.GetRequiredService<rover_db_context>();
+        var db  = context.RequestServices.GetRequiredService<rover_db_context>();
 
         var hash = jwt.ComputeSha256(token);
 
@@ -260,7 +276,7 @@ app.Use(async (context, next) =>
 
         if (!sesion_activa)
         {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.StatusCode  = StatusCodes.Status401Unauthorized;
             context.Response.ContentType = "application/json";
 
             await context.Response.WriteAsJsonAsync(new
@@ -283,13 +299,19 @@ app.UseAuthorization();
 app.MapControllers();
 
 // ─────────────────────────────────────────────
-// 13. HEALTH CHECKS
+// 13. SIGNALR HUB — WebSocket tiempo real con el frontend  ← NUEVO
+// URL que usa el frontend: wss://tu-backend.railway.app/hubs/rover
+// ─────────────────────────────────────────────
+app.MapHub<RoverHub>("/hubs/rover");                     // ← NUEVO
+
+// ─────────────────────────────────────────────
+// 14. HEALTH CHECKS
 // ─────────────────────────────────────────────
 app.MapGet("/health", () => Results.Ok(new
 {
-    status = "healthy",
+    status    = "healthy",
     timestamp = DateTime.UtcNow,
-    version = "2.0"
+    version   = "2.0"
 })).AllowAnonymous();
 
 app.MapGet("/health/database", async (rover_db_context ctx) =>
@@ -303,7 +325,7 @@ app.MapGet("/health/database", async (rover_db_context ctx) =>
 
         return Results.Ok(new
         {
-            status = "database connected",
+            status    = "database connected",
             timestamp = DateTime.UtcNow
         });
     }

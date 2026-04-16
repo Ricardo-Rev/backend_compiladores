@@ -1,40 +1,52 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MQTTnet;
 using MQTTnet.Client;
+using umg_basic_rover_api.Hubs;
 using umg_basic_rover_application.Contracts;
 
 namespace umg_basic_rover_infrastructure.Mqtt;
 
+/// <summary>
+/// Servicio MQTT que:
+///   1. Publica instrucciones al rover (rover/file/send)
+///   2. Publica STOP de emergencia (rover/stop)
+///   3. Suscribe a rover/ack y rover/status
+///   4. Reenvía esos mensajes al frontend via SignalR (WebSocket)
+/// </summary>
 public class MqttService : IMqttService, IAsyncDisposable
 {
-    private readonly IMqttClient         _client;
-    private readonly MqttClientOptions   _options;
-    private readonly ILogger<MqttService> _logger;
+    private readonly IMqttClient            _client;
+    private readonly MqttClientOptions      _options;
+    private readonly ILogger<MqttService>   _logger;
+    private readonly IHubContext<RoverHub>  _hub;
 
-    private const string TOPIC_FILE = "rover/file/send";
-    private const string TOPIC_STOP = "rover/stop";
+    private const string TOPIC_FILE   = "rover/file/send";
+    private const string TOPIC_STOP   = "rover/stop";
+    private const string TOPIC_ACK    = "rover/ack";
+    private const string TOPIC_STATUS = "rover/status";
 
-    // Opciones de serialización: snake_case y sin valores nulos
     private static readonly JsonSerializerOptions _jsonOpts = new()
     {
-        PropertyNamingPolicy        = JsonNamingPolicy.SnakeCaseLower,
-        DefaultIgnoreCondition      = JsonIgnoreCondition.WhenWritingNull,
-        WriteIndented               = false
+        PropertyNamingPolicy   = JsonNamingPolicy.SnakeCaseLower,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        WriteIndented          = false
     };
 
     public bool EstaConectado => _client.IsConnected;
 
-    public MqttService(IConfiguration config, ILogger<MqttService> logger)
+    public MqttService(
+        IConfiguration       config,
+        ILogger<MqttService> logger,
+        IHubContext<RoverHub> hub)
     {
         _logger = logger;
+        _hub    = hub;
 
-        // CORRECCIÓN: las claves deben coincidir con la sección "Mqtt" del appsettings.json
-        // En Railway se configuran como variables de entorno:
-        //   Mqtt__Broker, Mqtt__Port, Mqtt__User, Mqtt__Password
         var broker   = config["Mqtt:Broker"]   ?? throw new InvalidOperationException("Mqtt:Broker no configurado.");
         var port     = int.Parse(config["Mqtt:Port"] ?? "8883");
         var user     = config["Mqtt:User"]     ?? throw new InvalidOperationException("Mqtt:User no configurado.");
@@ -50,21 +62,62 @@ public class MqttService : IMqttService, IAsyncDisposable
             .WithTlsOptions(o => o.UseTls())
             .WithCleanSession()
             .Build();
+
+        // Registrar handler de mensajes entrantes ANTES de conectar
+        _client.ApplicationMessageReceivedAsync += OnMensajeRecibidoAsync;
     }
 
     private async Task AsegurarConexionAsync()
     {
         if (_client.IsConnected) return;
-
         try
         {
             await _client.ConnectAsync(_options);
             _logger.LogInformation("[MQTT] Conectado al broker.");
+
+            // Suscribirse a los topics de respuesta del rover
+            await _client.SubscribeAsync(TOPIC_ACK,    MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce);
+            await _client.SubscribeAsync(TOPIC_STATUS, MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce);
+            _logger.LogInformation("[MQTT] Suscrito a {ack} y {status}", TOPIC_ACK, TOPIC_STATUS);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[MQTT] Error al conectar al broker.");
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Handler de mensajes entrantes MQTT.
+    /// Reenvía rover/ack y rover/status al frontend via SignalR.
+    /// </summary>
+    private async Task OnMensajeRecibidoAsync(MqttApplicationMessageReceivedEventArgs e)
+    {
+        var topic   = e.ApplicationMessage.Topic;
+        var payload = Encoding.UTF8.GetString(e.ApplicationMessage.Payload ?? Array.Empty<byte>());
+
+        _logger.LogDebug("[MQTT→WS] Topic={topic} Payload={payload}", topic, payload);
+
+        try
+        {
+            var data = JsonSerializer.Deserialize<JsonElement>(payload);
+
+            if (topic == TOPIC_ACK)
+            {
+                // Determinar si es un progreso o un ACK final
+                if (data.TryGetProperty("progreso", out _))
+                    await _hub.Clients.All.SendAsync("RoverProgreso", data);
+                else
+                    await _hub.Clients.All.SendAsync("RoverAck", data);
+            }
+            else if (topic == TOPIC_STATUS)
+            {
+                await _hub.Clients.All.SendAsync("RoverStatus", data);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[MQTT→WS] Error procesando mensaje del rover.");
         }
     }
 
@@ -74,25 +127,17 @@ public class MqttService : IMqttService, IAsyncDisposable
         {
             await AsegurarConexionAsync();
 
-            // CORRECCIÓN: el payload debe tener exactamente las claves que espera el agente Python:
-            //   { "compilacion_id": 42, "instrucciones": [ {"comando": "...", "params": {...} } ] }
-            //
-            // NOTA: el agente Python lee inst.get("params", {}) — NO "params_"
-            // La serialización con SnakeCaseLower convierte "params_" → "params_" (no cambia el guión bajo)
-            // Por eso usamos un DTO anónimo con la clave exacta "params".
             var payloadObj = new
             {
                 compilacion_id,
                 instrucciones = instrucciones.Select(i => new InstruccionMqttDto
                 {
                     comando = i.comando,
-                    @params = i.params_      // @params serializa como "params" en JSON
+                    @params = i.params_
                 }).ToList()
             };
 
             var json    = JsonSerializer.Serialize(payloadObj, _jsonOpts);
-            _logger.LogDebug("[MQTT] Payload: {json}", json);
-
             var message = new MqttApplicationMessageBuilder()
                 .WithTopic(TOPIC_FILE)
                 .WithPayload(Encoding.UTF8.GetBytes(json))
@@ -100,7 +145,7 @@ public class MqttService : IMqttService, IAsyncDisposable
                 .Build();
 
             await _client.PublishAsync(message);
-            _logger.LogInformation("[MQTT] Publicado en {topic} — compilacion_id={id}, instrucciones={n}",
+            _logger.LogInformation("[MQTT] Publicado en {topic} — id={id}, cmds={n}",
                 TOPIC_FILE, compilacion_id, instrucciones.Count);
             return true;
         }
@@ -116,13 +161,11 @@ public class MqttService : IMqttService, IAsyncDisposable
         try
         {
             await AsegurarConexionAsync();
-
             var message = new MqttApplicationMessageBuilder()
                 .WithTopic(TOPIC_STOP)
                 .WithPayload(Encoding.UTF8.GetBytes("{\"command\":\"STOP\"}"))
                 .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
                 .Build();
-
             await _client.PublishAsync(message);
             _logger.LogInformation("[MQTT] STOP publicado.");
             return true;
@@ -141,7 +184,6 @@ public class MqttService : IMqttService, IAsyncDisposable
         _client.Dispose();
     }
 
-    // DTO interno para serializar con la clave "params" correcta
     private class InstruccionMqttDto
     {
         public string comando { get; set; } = string.Empty;
