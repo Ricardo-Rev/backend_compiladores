@@ -28,7 +28,8 @@ public class RoverController : ControllerBase
 
     /// <summary>
     /// Envía las instrucciones de una compilación al rover vía MQTT.
-    /// Requiere que la compilación exista y sea del usuario autenticado.
+    /// CORRECCIÓN: Las instrucciones combinadas (girar+avanzar) ahora se
+    /// expanden correctamente en comandos individuales antes de publicar.
     /// </summary>
     [HttpPost("execute")]
     [ProducesResponseType(typeof(RoverExecuteResponse), StatusCodes.Status200OK)]
@@ -40,7 +41,6 @@ public class RoverController : ControllerBase
         if (!int.TryParse(uid_str, out int usuario_id))
             return Unauthorized(new { error = "Token inválido." });
 
-        // Verificar que la compilación existe y pertenece al usuario
         var compilacion = await _db.compilaciones
             .AsNoTracking()
             .FirstOrDefaultAsync(c => c.id == request.compilacion_id && c.usuario_id == usuario_id);
@@ -51,7 +51,6 @@ public class RoverController : ControllerBase
         if (compilacion.resultado != "exito")
             return BadRequest(new { error = "Solo se pueden enviar compilaciones exitosas al rover." });
 
-        // Obtener sesión activa
         var sesion = await _db.sesiones
             .AsNoTracking()
             .Where(s => s.usuario_id == usuario_id && s.activa)
@@ -62,7 +61,6 @@ public class RoverController : ControllerBase
         if (sesion == 0)
             return Unauthorized(new { error = "No hay sesión activa." });
 
-        // Obtener instrucciones de la compilación
         var instrucciones = await _db.instrucciones_ejecutadas
             .AsNoTracking()
             .Where(i => i.compilacion_id == request.compilacion_id)
@@ -72,38 +70,62 @@ public class RoverController : ControllerBase
         if (!instrucciones.Any())
             return BadRequest(new { error = "La compilación no tiene instrucciones para enviar." });
 
-        // Convertir al formato que entiende el agente rover
-        var payload = instrucciones.Select(i => new RoverInstruccionPayload
-        {
-            comando = MapearComando(i.instruccion_raw),
-            params_ = ConstruirParams(i)
-        }).ToList();
+        // ── CORRECCIÓN CRÍTICA: expandir combinadas ──────────────────────────
+        // ANTES: MapearComando("girar(1) + avanzar_ctms(30)") → solo "GIRAR"
+        //        ConstruirParams para combinadas → diccionario vacío
+        // AHORA: cada parte se convierte en un payload individual con sus params
+        // ─────────────────────────────────────────────────────────────────────
+        var payload = new List<RoverInstruccionPayload>();
 
-        // Publicar vía MQTT
+        foreach (var inst in instrucciones)
+        {
+            var raw = inst.instruccion_raw?.Trim() ?? "";
+
+            if (raw.Contains('+'))
+            {
+                var expandidas = ExpandirCombinada(raw);
+                _logger.LogInformation("[ROVER] Combinada '{raw}' → {n} cmds", raw, expandidas.Count);
+                payload.AddRange(expandidas);
+            }
+            else
+            {
+                payload.Add(new RoverInstruccionPayload
+                {
+                    comando = MapearComando(raw),
+                    params_ = ConstruirParams(inst)
+                });
+            }
+        }
+
+        _logger.LogInformation(
+            "[ROVER] Compilación #{id}: {orig} filas BD → {exp} comandos MQTT",
+            request.compilacion_id, instrucciones.Count, payload.Count);
+
         var enviado = await _mqtt.PublicarEjecucionAsync(request.compilacion_id, payload);
 
-        // Registrar transmisión en BD
         var transmision = new transmision_rover_entity
         {
-            compilacion_id   = request.compilacion_id,
-            usuario_id       = usuario_id,
-            lenguaje_destino = request.lenguaje_destino,
-            estado_envio     = enviado ? "entregado" : "error",
-            metodo_envio     = "inalambrico",
-            mensaje_respuesta = enviado ? "Publicado en MQTT correctamente." : "Error al publicar en MQTT.",
-            fecha_envio      = DateTime.Now,
-            fecha_respuesta  = DateTime.Now
+            compilacion_id    = request.compilacion_id,
+            usuario_id        = usuario_id,
+            lenguaje_destino  = request.lenguaje_destino,
+            estado_envio      = enviado ? "entregado" : "error",
+            metodo_envio      = "inalambrico",
+            mensaje_respuesta = enviado
+                ? $"Publicado en MQTT: {payload.Count} comandos."
+                : "Error al publicar en MQTT.",
+            fecha_envio     = DateTime.Now,
+            fecha_respuesta = DateTime.Now
         };
 
         _db.transmisiones_rover.Add(transmision);
 
-        // Bitácora
         _db.bitacora_acciones.Add(new bitacora_accion_entity
         {
-            usuario_id  = usuario_id,
-            sesion_id   = sesion,
-            tipo_accion = "enviar_rover",
-            descripcion = $"Compilación #{request.compilacion_id} enviada al rover. Estado: {transmision.estado_envio}",
+            usuario_id   = usuario_id,
+            sesion_id    = sesion,
+            tipo_accion  = "enviar_rover",
+            descripcion  = $"Compilación #{request.compilacion_id} enviada. " +
+                           $"Comandos: {payload.Count}. Estado: {transmision.estado_envio}",
             fecha_accion = DateTime.Now
         });
 
@@ -115,22 +137,19 @@ public class RoverController : ControllerBase
         return Ok(new RoverExecuteResponse
         {
             exitoso             = true,
-            mensaje             = $"Instrucciones enviadas al rover correctamente.",
+            mensaje             = $"Instrucciones enviadas al rover. ({payload.Count} comandos)",
             transmision_id      = transmision.id,
             compilacion_id      = request.compilacion_id,
-            total_instrucciones = instrucciones.Count
+            total_instrucciones = payload.Count
         });
     }
 
-    /// <summary>
-    /// Envía señal de parada de emergencia al rover.
-    /// </summary>
+    /// <summary>Parada de emergencia.</summary>
     [HttpPost("stop")]
     [ProducesResponseType(typeof(RoverStopResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> Stop()
     {
         var enviado = await _mqtt.PublicarStopAsync();
-
         return Ok(new RoverStopResponse
         {
             exitoso = enviado,
@@ -138,9 +157,7 @@ public class RoverController : ControllerBase
         });
     }
 
-    /// <summary>
-    /// Retorna si el broker MQTT está conectado.
-    /// </summary>
+    /// <summary>Estado del MQTT y URL de la cámara.</summary>
     [HttpGet("status")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     public IActionResult Status()
@@ -148,25 +165,80 @@ public class RoverController : ControllerBase
         return Ok(new
         {
             mqtt_conectado = _mqtt.EstaConectado,
+            camara_url     = "https://rover.nexttechsolutionspc.xyz/?action=stream",
+            snapshot_url   = "https://rover.nexttechsolutionspc.xyz/?action=snapshot",
             timestamp      = DateTime.UtcNow
         });
     }
 
-    // ── Helpers de mapeo ────────────────────────────────────
-    private static string MapearComando(string raw)
+
+    // ════════════════════════════════════════════════════════════════
+    // HELPERS PRIVADOS
+    // ════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Expande "girar(1) + avanzar_ctms(30)" en payloads individuales:
+    ///   → [GIRAR n=1]  +  [AVANZAR_CTMS n=30]
+    /// </summary>
+    private static List<RoverInstruccionPayload> ExpandirCombinada(string raw)
     {
-        if (raw.StartsWith("avanzar_ctms")) return "AVANZAR_CTMS";
-        if (raw.StartsWith("avanzar_vlts")) return "AVANZAR_VLTS";
-        if (raw.StartsWith("avanzar_mts"))  return "AVANZAR_MTS";
-        if (raw.StartsWith("girar"))        return "GIRAR";
-        if (raw.StartsWith("circulo"))      return "CIRCULO";
-        if (raw.StartsWith("cuadrado"))     return "CUADRADO";
-        if (raw.StartsWith("rotar"))        return "ROTAR";
-        if (raw.StartsWith("caminar"))      return "CAMINAR";
-        if (raw.StartsWith("moonwalk"))     return "MOONWALK";
-        return raw.ToUpper();
+        var resultado = new List<RoverInstruccionPayload>();
+        var partes    = raw.Split('+', StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var parte in partes)
+        {
+            var p        = parte.Trim().TrimEnd(';');
+            var idxAbre  = p.IndexOf('(');
+            var idxCierra = p.LastIndexOf(')');
+
+            if (idxAbre < 0 || idxCierra <= idxAbre) continue;
+
+            var nombre   = p[..idxAbre].Trim().ToLower();
+            var paramStr = p[(idxAbre + 1)..idxCierra].Trim();
+
+            if (!int.TryParse(paramStr, out int valor)) continue;
+
+            var cmd = MapearNombre(nombre);
+            if (string.IsNullOrEmpty(cmd)) continue;
+
+            var prms = new Dictionary<string, int>();
+            switch (nombre)
+            {
+                case "circulo":  prms["r"] = valor; break;
+                case "cuadrado": prms["l"] = valor; break;
+                default:         prms["n"] = valor; break;
+            }
+
+            resultado.Add(new RoverInstruccionPayload { comando = cmd, params_ = prms });
+        }
+
+        return resultado;
     }
 
+    /// <summary>Nombre UMG++ → comando MQTT del rover.</summary>
+    private static string MapearNombre(string nombre) => nombre switch
+    {
+        "avanzar_ctms" or "avanzar_cms" => "AVANZAR_CTMS",
+        "avanzar_vlts"                   => "AVANZAR_VLTS",
+        "avanzar_mts"                    => "AVANZAR_MTS",
+        "girar"                          => "GIRAR",
+        "circulo"                        => "CIRCULO",
+        "cuadrado"                       => "CUADRADO",
+        "rotar"                          => "ROTAR",
+        "caminar"                        => "CAMINAR",
+        "moonwalk"                       => "MOONWALK",
+        _                                => string.Empty
+    };
+
+    /// <summary>Extrae el nombre antes de '(' y lo mapea al comando MQTT.</summary>
+    private static string MapearComando(string raw)
+    {
+        var idx    = raw.IndexOf('(');
+        var nombre = idx > 0 ? raw[..idx].Trim().ToLower() : raw.Trim().ToLower();
+        return MapearNombre(nombre);
+    }
+
+    /// <summary>Parámetros desde las columnas ya validadas en la BD.</summary>
     private static Dictionary<string, int> ConstruirParams(instruccion_ejecutada_entity i)
     {
         var p = new Dictionary<string, int>();
