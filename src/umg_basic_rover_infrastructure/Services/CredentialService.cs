@@ -220,47 +220,24 @@ public class CredentialService : ICredentialService
         397.0f, 353.0f, 112.0f, 115.0f, fontBold, blanco);
 
     // ── HASH SHA-256 ─────────────────────────────────────
-    var hashFirma = Convert.ToHexString(
-        SHA256.HashData(Encoding.UTF8.GetBytes(
-            $"{usuario.usuario}{usuario.email}{usuario.fecha_creacion:yyyyMMddHHmmss}")));
 
-    doc.Add(new Paragraph(hashFirma)
-        .SetFont(fontMono).SetFontSize(6f).SetFontColor(grisClaro)
-        .SetFixedPosition(70.0f, 245.25f, 454.0f));
+
 
     // ── ALGORITMO ────────────────────────────────────────
-    doc.Add(new Paragraph("SHA-256 · AES-256 · UMG Basic Rover 2.0-2026")
-        .SetFont(fontNormal).SetFontSize(9f).SetFontColor(grisFirma)
-        .SetFixedPosition(70.0f, 215.68f, 454.0f));
-
-    // ── CUADRO FIRMA + HIPERVÍNCULO AL VERIFICADOR ───────
-    var cyan_link = new DeviceRgb(56, 189, 248);
-    var gris_box  = new DeviceRgb(200, 200, 200);
-
-    // Izquierda: cuadro con datos de la firma
-    doc.Add(new Paragraph("🔒 NextTech Solutions | UMG")
-        .SetFont(fontNormal).SetFontSize(7f).SetFontColor(gris_box)
-        .SetFixedPosition(70f, 195f, 180f));
-
-    doc.Add(new Paragraph($"Date: {DateTime.Now:yyyy.MM.dd}")
-        .SetFont(fontNormal).SetFontSize(7f).SetFontColor(gris_box)
-        .SetFixedPosition(70f, 184f, 180f));
-
-    doc.Add(new Paragraph("Reason: UMG Basic Rover 2.0-2026")
-        .SetFont(fontNormal).SetFontSize(7f).SetFontColor(gris_box)
-        .SetFixedPosition(70f, 173f, 180f));
-
+   
     // Derecha: hipervínculo clickeable al verificador
+    // ── HIPERVÍNCULO AL VERIFICADOR ──────────────────────
+    var cyan_link = new DeviceRgb(0, 255, 200);
     var link_verificador = new Link(
-        "✅ Verificar autenticidad del documento\nnexttechsolutionspc.xyz/verify-credential",
+        "✅ Verificar autenticidad: nexttechsolutionspc.xyz/verify-credential",
         PdfAction.CreateURI("https://www.nexttechsolutionspc.xyz/verify-credential")
     );
-    doc.Add(new Paragraph().Add(
-        link_verificador
+    doc.Add(new Paragraph()
+        .Add(link_verificador
             .SetFontColor(cyan_link)
-            .SetFont(fontNormal)
+            .SetFont(fontBold)
             .SetFontSize(7.5f))
-        .SetFixedPosition(265f, 179f, 260f));
+        .SetFixedPosition(265f, 225f, 260f));
 
     doc.Close();
     return ms.ToArray();
@@ -735,6 +712,11 @@ public class CredentialService : ICredentialService
             pdf_content.Headers.ContentType =
                 new System.Net.Http.Headers.MediaTypeHeaderValue("application/pdf");
             content.Add(pdf_content, "pdf", "credencial.pdf");
+            content.Add(new StringContent("36"),  "firma_x");
+            content.Add(new StringContent("210"), "firma_y");
+            content.Add(new StringContent("220"), "firma_ancho");
+            content.Add(new StringContent("55"),  "firma_alto");
+            content.Add(new StringContent("1"),   "firma_pagina");
 
             var response = await http.PostAsync($"{base_url}/sign", content);
 
