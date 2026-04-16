@@ -141,94 +141,112 @@ public class CredentialService : ICredentialService
     {
         using var ms = new MemoryStream();
         using var writer = new PdfWriter(ms);
+
+        // ── Tamaño real del fondo: 1684×2528 px → proporción 2:3
+        //    Si W=595 pts → H = 595 × (2528/1684) = 893.2 pts
+        const float W = 595f;
+        const float H = 893f;
+
         using var pdf = new PdfDocument(writer);
-        using var doc = new Document(pdf, PageSize.A4);
+        using var doc = new Document(pdf, new PageSize(W, H));
         doc.SetMargins(0, 0, 0, 0);
 
-        const float W = 595f;
-        const float H = 842f;
-
-        var fontBold = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
+        var fontBold   = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
         var fontNormal = PdfFontFactory.CreateFont(StandardFonts.HELVETICA);
-        var fontMono = PdfFontFactory.CreateFont(StandardFonts.COURIER);
+        var fontMono   = PdfFontFactory.CreateFont(StandardFonts.COURIER_BOLD);
 
-        var blanco = new DeviceRgb(245, 245, 245);
-        var grisClaro = new DeviceRgb(220, 220, 220);
-        var grisFirma = new DeviceRgb(185, 185, 185);
+        // Paleta de colores
+        var blanco       = new DeviceRgb(245, 245, 245);   // texto principal
+        var azulCian     = new DeviceRgb(100, 210, 255);   // acentos/labels
+        var grisClaro    = new DeviceRgb(200, 200, 200);   // hash firma
+        var grisFirma    = new DeviceRgb(160, 160, 160);   // línea algoritmo
 
+        // 1) FONDO — ocupa toda la página
         CargarFondo(doc, W, H);
 
-        // FOTO FACIAL — recuadro izq arriba
-        DibujarImagenBase64(doc, foto_facial_base64, 48f, 530f, 118f, 125f);
+        // ── Zona superior: foto facial (izq) + nombre/usuario (centro) + QR (der)
+        // La plantilla tiene esa zona aprox en Y=680..820 de 893
 
-        // QR — sin texto debajo
+        // 2) FOTO FACIAL — recuadro izquierdo superior
+        //    Zona plantilla: X≈48, Y_top≈820 → en iText Y desde abajo = H - Y_top - h
+        //    Aproximación visual: x=44, y=688, w=118, h=130
+        DibujarImagenBase64(doc, foto_facial_base64, 44f, 690f, 118f, 128f);
+
+        // 3) QR — esquina derecha superior
         doc.Add(new Image(ImageDataFactory.Create(qr_bytes))
-            .SetFixedPosition(430f, 530f)
-            .SetWidth(110f)
-            .SetHeight(110f));
+            .SetFixedPosition(432f, 692f)
+            .SetWidth(108f)
+            .SetHeight(108f));
 
-        // NOMBRE COMPLETO — bajar 15pts respecto al último intento (626→611)
+        // 4) NOMBRE COMPLETO — fila 1 zona central
         doc.Add(new Paragraph(usuario.nombre_completo ?? usuario.usuario)
+            .SetFont(fontBold)
+            .SetFontSize(12.5f)
+            .SetFontColor(blanco)
+            .SetFixedPosition(178f, 756f, 245f));
+
+        // 5) USUARIO (zona central superior) — fila 2
+        doc.Add(new Paragraph(usuario.usuario ?? "")
+            .SetFont(fontBold)
+            .SetFontSize(11.5f)
+            .SetFontColor(blanco)
+            .SetFixedPosition(178f, 716f, 245f));
+
+        // ── Zona media: campos de datos (usuario, correo, whatsapp, vigencia)
+        //    Cada campo tiene un label gris arriba y el valor blanco abajo
+        //    Coordenadas Y calculadas sobre H=893
+
+        // 6) USUARIO (campo grande) — aprox Y=608
+        doc.Add(new Paragraph(usuario.usuario ?? "")
             .SetFont(fontBold)
             .SetFontSize(12f)
             .SetFontColor(blanco)
-            .SetFixedPosition(210f, 611f, 200f));
+            .SetFixedPosition(82f, 610f, 330f));
 
-        // USUARIO superior — bajar 15pts (566→551)
-        doc.Add(new Paragraph(usuario.usuario ?? "")
-            .SetFont(fontBold)
-            .SetFontSize(11f)
-            .SetFontColor(blanco)
-            .SetFixedPosition(210f, 551f, 200f));
-
-        // AVATAR — mover X a la izquierda (600→385), Y igual
-        DibujarAvatar(doc, usuario.avatar_base64, usuario.usuario, 385f, 295f, 120f, 135f, fontBold, blanco);
-
-        // CAMPO USUARIO — bajar 10pts (481→471)
-        doc.Add(new Paragraph(usuario.usuario ?? "")
-            .SetFont(fontBold)
-            .SetFontSize(11f)
-            .SetFontColor(blanco)
-            .SetFixedPosition(90f, 471f, 340f));
-
-        // CAMPO CORREO — bajar 10pts (435→425)
+        // 7) CORREO ELECTRÓNICO — aprox Y=545
         doc.Add(new Paragraph(usuario.email ?? "")
             .SetFont(fontBold)
-            .SetFontSize(11f)
+            .SetFontSize(10.5f)
             .SetFontColor(blanco)
-            .SetFixedPosition(90f, 425f, 290f));
+            .SetFixedPosition(82f, 550f, 290f));
 
-        // CAMPO WHATSAPP — igual (360 estaba bien)
+        // 8) WHATSAPP — aprox Y=478
         doc.Add(new Paragraph(usuario.telefono ?? "")
             .SetFont(fontBold)
             .SetFontSize(11f)
             .SetFontColor(blanco)
-            .SetFixedPosition(90f, 355f, 290f));
+            .SetFixedPosition(82f, 482f, 290f));
 
-        // CAMPO EMISIÓN - VIGENCIA — bajar 10pts (290→280)
+        // 9) EMISIÓN - VIGENCIA — aprox Y=408
         var vigencia = $"{usuario.fecha_creacion:dd/MM/yyyy} - {usuario.fecha_creacion.AddYears(1):dd/MM/yyyy}";
         doc.Add(new Paragraph(vigencia)
             .SetFont(fontBold)
             .SetFontSize(11f)
             .SetFontColor(blanco)
-            .SetFixedPosition(90f, 280f, 290f));
+            .SetFixedPosition(82f, 412f, 290f));
 
-        // FIRMA / HASH — igual (estaban bien)
+        // 10) AVATAR — recuadro derecho medio
+        //     Zona plantilla derecha: x≈388, y≈390..520 → en iText y≈382
+        DibujarAvatar(doc, usuario.avatar_base64, usuario.usuario, 387f, 392f, 118f, 130f, fontBold, blanco);
+
+        // ── Zona inferior: firma electrónica
+        // 11) HASH SHA-256 — línea 1
         var hashFirma = Convert.ToHexString(
             SHA256.HashData(
                 Encoding.UTF8.GetBytes($"{usuario.usuario}{usuario.email}{usuario.fecha_creacion:yyyyMMddHHmmss}")));
 
         doc.Add(new Paragraph(hashFirma)
             .SetFont(fontMono)
-            .SetFontSize(6.5f)
+            .SetFontSize(6f)
             .SetFontColor(grisClaro)
-            .SetFixedPosition(90f, 232f, 430f));
+            .SetFixedPosition(82f, 318f, 430f));
 
+        // 12) Algoritmo — línea 2
         doc.Add(new Paragraph("SHA-256 · AES-256 · UMG Basic Rover 2.0-2026")
             .SetFont(fontNormal)
             .SetFontSize(7.5f)
             .SetFontColor(grisFirma)
-            .SetFixedPosition(90f, 216f, 320f));
+            .SetFixedPosition(82f, 302f, 320f));
 
         doc.Close();
         return ms.ToArray();
