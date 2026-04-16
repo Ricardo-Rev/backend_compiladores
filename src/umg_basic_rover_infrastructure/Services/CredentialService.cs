@@ -165,54 +165,54 @@ public class CredentialService : ICredentialService
         .SetFixedPosition(423.97f, 574.90f)
         .SetWidth(114.98f).SetHeight(115.41f));
 
-    // ── NOMBRE COMPLETO ──────────────────────────────────
+    // ── NOMBRE COMPLETO — centrado vertical en su banda ──
     doc.Add(new Paragraph("NOMBRE COMPLETO")
         .SetFont(fontNormal).SetFontSize(8f).SetFontColor(azulLabel)
-        .SetFixedPosition(203.0f, 668.0f, 213.0f));
+        .SetFixedPosition(203.0f, 673.5f, 213.0f));
     doc.Add(new Paragraph(usuario.nombre_completo ?? usuario.usuario)
         .SetFont(fontBold).SetFontSize(16f).SetFontColor(blanco)
-        .SetFixedPosition(203.0f, 649.0f, 213.0f));
+        .SetFixedPosition(203.0f, 657.5f, 213.0f));
 
-    // ── USUARIO / NICKNAME ───────────────────────────────
+    // ── USUARIO — centrado vertical en su banda ──────────
     doc.Add(new Paragraph("USUARIO")
         .SetFont(fontNormal).SetFontSize(8f).SetFontColor(azulLabel)
-        .SetFixedPosition(203.0f, 604.0f, 213.0f));
+        .SetFixedPosition(203.0f, 609.9f, 213.0f));
     doc.Add(new Paragraph(usuario.usuario ?? "")
         .SetFont(fontBold).SetFontSize(16f).SetFontColor(blanco)
-        .SetFixedPosition(203.0f, 585.0f, 213.0f));
+        .SetFixedPosition(203.0f, 593.9f, 213.0f));
 
     // ── CAMPO USUARIO largo ──────────────────────────────
     doc.Add(new Paragraph("USUARIO")
         .SetFont(fontNormal).SetFontSize(8f).SetFontColor(azulLabel)
-        .SetFixedPosition(65.0f, 519.0f, 315.0f));
+        .SetFixedPosition(65.0f, 525.5f, 315.0f));
     doc.Add(new Paragraph(usuario.usuario ?? "")
         .SetFont(fontBold).SetFontSize(16f).SetFontColor(blanco)
-        .SetFixedPosition(65.0f, 500.0f, 315.0f));
+        .SetFixedPosition(65.0f, 509.5f, 315.0f));
 
     // ── CORREO ELECTRÓNICO ───────────────────────────────
     doc.Add(new Paragraph("CORREO ELECTRÓNICO")
         .SetFont(fontNormal).SetFontSize(8f).SetFontColor(azulLabel)
-        .SetFixedPosition(70.0f, 458.0f, 317.0f));
+        .SetFixedPosition(70.0f, 463.7f, 317.0f));
     doc.Add(new Paragraph(usuario.email ?? "")
         .SetFont(fontBold).SetFontSize(14f).SetFontColor(blanco)
-        .SetFixedPosition(70.0f, 439.0f, 317.0f));
+        .SetFixedPosition(70.0f, 447.7f, 317.0f));
 
     // ── WHATSAPP ─────────────────────────────────────────
     doc.Add(new Paragraph("WHATSAPP")
         .SetFont(fontNormal).SetFontSize(8f).SetFontColor(azulLabel)
-        .SetFixedPosition(80.0f, 397.0f, 296.0f));
+        .SetFixedPosition(80.0f, 402.2f, 296.0f));
     doc.Add(new Paragraph(usuario.telefono ?? "")
         .SetFont(fontBold).SetFontSize(16f).SetFontColor(blanco)
-        .SetFixedPosition(80.0f, 378.0f, 296.0f));
+        .SetFixedPosition(80.0f, 386.2f, 296.0f));
 
     // ── EMISIÓN - VIGENCIA ───────────────────────────────
     doc.Add(new Paragraph("EMISIÓN - VIGENCIA")
         .SetFont(fontNormal).SetFontSize(8f).SetFontColor(azulLabel)
-        .SetFixedPosition(72.0f, 336.0f, 305.0f));
+        .SetFixedPosition(72.0f, 341.1f, 305.0f));
     var vigencia = $"{usuario.fecha_creacion:dd/MM/yyyy} - {usuario.fecha_creacion.AddYears(1):dd/MM/yyyy}";
     doc.Add(new Paragraph(vigencia)
         .SetFont(fontBold).SetFontSize(14f).SetFontColor(blanco)
-        .SetFixedPosition(72.0f, 317.0f, 305.0f));
+        .SetFixedPosition(72.0f, 325.1f, 305.0f));
 
     // ── AVATAR ───────────────────────────────────────────
     DibujarAvatar(doc, usuario.avatar_base64, usuario.usuario,
