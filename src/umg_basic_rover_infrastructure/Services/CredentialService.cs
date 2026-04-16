@@ -151,7 +151,7 @@ public class CredentialService : ICredentialService
     var fontNormal = PdfFontFactory.CreateFont(StandardFonts.HELVETICA);
     var fontMono   = PdfFontFactory.CreateFont(StandardFonts.COURIER_BOLD);
     var blanco     = new DeviceRgb(245, 245, 245);
-    var azulLabel  = new DeviceRgb(150, 210, 255);  // color labels
+    var azulLabel  = new DeviceRgb(150, 210, 255);
     var grisClaro  = new DeviceRgb(200, 200, 200);
     var grisFirma  = new DeviceRgb(160, 160, 160);
 
@@ -167,68 +167,69 @@ public class CredentialService : ICredentialService
 
     // ── NOMBRE COMPLETO ──────────────────────────────────
     doc.Add(new Paragraph("NOMBRE COMPLETO")
-        .SetFont(fontNormal).SetFontSize(7f).SetFontColor(azulLabel)
+        .SetFont(fontNormal).SetFontSize(8f).SetFontColor(azulLabel)
         .SetFixedPosition(203.0f, 668.0f, 213.0f));
     doc.Add(new Paragraph(usuario.nombre_completo ?? usuario.usuario)
-        .SetFont(fontBold).SetFontSize(12f).SetFontColor(blanco)
-        .SetFixedPosition(203.0f, 652.0f, 213.0f));
+        .SetFont(fontBold).SetFontSize(16f).SetFontColor(blanco)
+        .SetFixedPosition(203.0f, 649.0f, 213.0f));
 
     // ── USUARIO / NICKNAME ───────────────────────────────
     doc.Add(new Paragraph("USUARIO")
-        .SetFont(fontNormal).SetFontSize(7f).SetFontColor(azulLabel)
+        .SetFont(fontNormal).SetFontSize(8f).SetFontColor(azulLabel)
         .SetFixedPosition(203.0f, 604.0f, 213.0f));
     doc.Add(new Paragraph(usuario.usuario ?? "")
-        .SetFont(fontBold).SetFontSize(12f).SetFontColor(blanco)
-        .SetFixedPosition(203.0f, 588.0f, 213.0f));
+        .SetFont(fontBold).SetFontSize(16f).SetFontColor(blanco)
+        .SetFixedPosition(203.0f, 585.0f, 213.0f));
 
     // ── CAMPO USUARIO largo ──────────────────────────────
     doc.Add(new Paragraph("USUARIO")
-        .SetFont(fontNormal).SetFontSize(7f).SetFontColor(azulLabel)
+        .SetFont(fontNormal).SetFontSize(8f).SetFontColor(azulLabel)
         .SetFixedPosition(65.0f, 519.0f, 315.0f));
     doc.Add(new Paragraph(usuario.usuario ?? "")
-        .SetFont(fontBold).SetFontSize(12f).SetFontColor(blanco)
-        .SetFixedPosition(65.0f, 503.0f, 315.0f));
+        .SetFont(fontBold).SetFontSize(16f).SetFontColor(blanco)
+        .SetFixedPosition(65.0f, 500.0f, 315.0f));
 
     // ── CORREO ELECTRÓNICO ───────────────────────────────
     doc.Add(new Paragraph("CORREO ELECTRÓNICO")
-        .SetFont(fontNormal).SetFontSize(7f).SetFontColor(azulLabel)
+        .SetFont(fontNormal).SetFontSize(8f).SetFontColor(azulLabel)
         .SetFixedPosition(70.0f, 458.0f, 317.0f));
     doc.Add(new Paragraph(usuario.email ?? "")
-        .SetFont(fontBold).SetFontSize(11f).SetFontColor(blanco)
-        .SetFixedPosition(70.0f, 442.0f, 317.0f));
+        .SetFont(fontBold).SetFontSize(14f).SetFontColor(blanco)
+        .SetFixedPosition(70.0f, 439.0f, 317.0f));
 
     // ── WHATSAPP ─────────────────────────────────────────
     doc.Add(new Paragraph("WHATSAPP")
-        .SetFont(fontNormal).SetFontSize(7f).SetFontColor(azulLabel)
+        .SetFont(fontNormal).SetFontSize(8f).SetFontColor(azulLabel)
         .SetFixedPosition(80.0f, 397.0f, 296.0f));
     doc.Add(new Paragraph(usuario.telefono ?? "")
-        .SetFont(fontBold).SetFontSize(12f).SetFontColor(blanco)
-        .SetFixedPosition(80.0f, 381.0f, 296.0f));
+        .SetFont(fontBold).SetFontSize(16f).SetFontColor(blanco)
+        .SetFixedPosition(80.0f, 378.0f, 296.0f));
 
     // ── EMISIÓN - VIGENCIA ───────────────────────────────
     doc.Add(new Paragraph("EMISIÓN - VIGENCIA")
-        .SetFont(fontNormal).SetFontSize(7f).SetFontColor(azulLabel)
+        .SetFont(fontNormal).SetFontSize(8f).SetFontColor(azulLabel)
         .SetFixedPosition(72.0f, 336.0f, 305.0f));
     var vigencia = $"{usuario.fecha_creacion:dd/MM/yyyy} - {usuario.fecha_creacion.AddYears(1):dd/MM/yyyy}";
     doc.Add(new Paragraph(vigencia)
-        .SetFont(fontBold).SetFontSize(11f).SetFontColor(blanco)
-        .SetFixedPosition(72.0f, 320.0f, 305.0f));
+        .SetFont(fontBold).SetFontSize(14f).SetFontColor(blanco)
+        .SetFixedPosition(72.0f, 317.0f, 305.0f));
 
     // ── AVATAR ───────────────────────────────────────────
     DibujarAvatar(doc, usuario.avatar_base64, usuario.usuario,
         397.0f, 353.0f, 112.0f, 115.0f, fontBold, blanco);
 
-    // ── FIRMA ELECTRÓNICA ────────────────────────────────
+    // ── HASH SHA-256 ─────────────────────────────────────
     var hashFirma = Convert.ToHexString(
         SHA256.HashData(Encoding.UTF8.GetBytes(
             $"{usuario.usuario}{usuario.email}{usuario.fecha_creacion:yyyyMMddHHmmss}")));
 
     doc.Add(new Paragraph(hashFirma)
-        .SetFont(fontMono).SetFontSize(5.5f).SetFontColor(grisClaro)
+        .SetFont(fontMono).SetFontSize(6f).SetFontColor(grisClaro)
         .SetFixedPosition(70.0f, 245.25f, 454.0f));
 
+    // ── ALGORITMO ────────────────────────────────────────
     doc.Add(new Paragraph("SHA-256 · AES-256 · UMG Basic Rover 2.0-2026")
-        .SetFont(fontNormal).SetFontSize(8f).SetFontColor(grisFirma)
+        .SetFont(fontNormal).SetFontSize(9f).SetFontColor(grisFirma)
         .SetFixedPosition(70.0f, 215.68f, 454.0f));
 
     doc.Close();
