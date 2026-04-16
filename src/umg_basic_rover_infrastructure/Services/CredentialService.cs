@@ -141,12 +141,8 @@ public class CredentialService : ICredentialService
 {
     using var ms     = new MemoryStream();
     using var writer = new PdfWriter(ms);
-
-    // Fondo real: 1684×2528 px → ratio 0.6661
-    // W=595 → H = 595 × (2528/1684) = 893 pts
     const float W = 595f;
     const float H = 893f;
-
     using var pdf = new PdfDocument(writer);
     using var doc = new Document(pdf, new PageSize(W, H));
     doc.SetMargins(0, 0, 0, 0);
@@ -154,91 +150,86 @@ public class CredentialService : ICredentialService
     var fontBold   = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
     var fontNormal = PdfFontFactory.CreateFont(StandardFonts.HELVETICA);
     var fontMono   = PdfFontFactory.CreateFont(StandardFonts.COURIER_BOLD);
-
-    var blanco    = new DeviceRgb(245, 245, 245);
-    var grisClaro = new DeviceRgb(200, 200, 200);
-    var grisFirma = new DeviceRgb(160, 160, 160);
+    var blanco     = new DeviceRgb(245, 245, 245);
+    var grisClaro  = new DeviceRgb(200, 200, 200);
+    var grisFirma  = new DeviceRgb(160, 160, 160);
 
     // 1) FONDO
     CargarFondo(doc, W, H);
 
-    // 2) FOTO FACIAL — recuadro metálico izquierdo superior
-    //    Zona fondo: x=45px, y=490px, w=240px, h=330px
-    DibujarImagenBase64(doc, foto_facial_base64, 15.9f, 603.3f, 84.8f, 116.6f);
+    // 2) FOTO FACIAL
+    DibujarImagenBase64(doc, foto_facial_base64, 51.02f, 557.58f, 118.57f, 133.45f);
 
-    // 3) QR — recuadro blanco derecha superior
-    //    Zona fondo: x=1145px, y=490px, w=385px, h=310px
+    // 3) QR
     doc.Add(new Image(ImageDataFactory.Create(qr_bytes))
-        .SetFixedPosition(404.6f, 610.4f)
-        .SetWidth(136.0f)
-        .SetHeight(109.5f));
+        .SetFixedPosition(423.97f, 574.90f)
+        .SetWidth(114.98f)
+        .SetHeight(115.41f));
 
-    // 4) NOMBRE COMPLETO — valor en zona central, fila 1
+    // 4) NOMBRE COMPLETO
     doc.Add(new Paragraph(usuario.nombre_completo ?? usuario.usuario)
         .SetFont(fontBold)
-        .SetFontSize(12f)
+        .SetFontSize(10f)
         .SetFontColor(blanco)
-        .SetFixedPosition(109.5f, 681.1f, 279.1f));
+        .SetFixedPosition(193.0f, 656.41f, 223.0f));
 
-    // 5) USUARIO — valor en zona central, fila 2
+    // 5) USUARIO / NICKNAME
     doc.Add(new Paragraph(usuario.usuario ?? "")
         .SetFont(fontBold)
-        .SetFontSize(11f)
+        .SetFontSize(10f)
         .SetFontColor(blanco)
-        .SetFixedPosition(109.5f, 645.7f, 279.1f));
+        .SetFixedPosition(193.0f, 592.93f, 223.0f));
 
-    // 6) CAMPO USUARIO — franja ancha zona media
+    // 6) CAMPO USUARIO largo
     doc.Add(new Paragraph(usuario.usuario ?? "")
         .SetFont(fontBold)
-        .SetFontSize(11f)
+        .SetFontSize(10f)
         .SetFontColor(blanco)
-        .SetFixedPosition(26.5f, 525.6f, 346.3f));
+        .SetFixedPosition(55.0f, 507.1f, 325.0f));
 
     // 7) CAMPO CORREO ELECTRÓNICO
     doc.Add(new Paragraph(usuario.email ?? "")
         .SetFont(fontBold)
-        .SetFontSize(10f)
+        .SetFontSize(9f)
         .SetFontColor(blanco)
-        .SetFixedPosition(26.5f, 465.6f, 300.3f));
+        .SetFixedPosition(60.3f, 445.8f, 327.0f));
 
     // 8) CAMPO WHATSAPP
     doc.Add(new Paragraph(usuario.telefono ?? "")
         .SetFont(fontBold)
-        .SetFontSize(11f)
+        .SetFontSize(10f)
         .SetFontColor(blanco)
-        .SetFixedPosition(26.5f, 409.1f, 300.3f));
+        .SetFixedPosition(70.4f, 384.5f, 306.1f));
 
     // 9) CAMPO EMISIÓN - VIGENCIA
     var vigencia = $"{usuario.fecha_creacion:dd/MM/yyyy} - {usuario.fecha_creacion.AddYears(1):dd/MM/yyyy}";
     doc.Add(new Paragraph(vigencia)
         .SetFont(fontBold)
-        .SetFontSize(11f)
+        .SetFontSize(9.5f)
         .SetFontColor(blanco)
-        .SetFixedPosition(26.5f, 352.5f, 300.3f));
+        .SetFixedPosition(62.4f, 323.9f, 315.5f));
 
-    // 10) AVATAR — recuadro metálico derecha media
-    //     Zona fondo: x=1100px, y=1140px, w=415px, h=380px
+    // 10) AVATAR
     DibujarAvatar(doc, usuario.avatar_base64, usuario.usuario,
-        388.7f, 356.1f, 146.6f, 134.2f, fontBold, blanco);
+        386.61f, 344.79f, 132.94f, 133.45f, fontBold, blanco);
 
     // 11) HASH SHA-256
     var hashFirma = Convert.ToHexString(
-        SHA256.HashData(
-            Encoding.UTF8.GetBytes(
-                $"{usuario.usuario}{usuario.email}{usuario.fecha_creacion:yyyyMMddHHmmss}")));
+        SHA256.HashData(Encoding.UTF8.GetBytes(
+            $"{usuario.usuario}{usuario.email}{usuario.fecha_creacion:yyyyMMddHHmmss}")));
 
     doc.Add(new Paragraph(hashFirma)
         .SetFont(fontMono)
-        .SetFontSize(6f)
+        .SetFontSize(5.5f)
         .SetFontColor(grisClaro)
-        .SetFixedPosition(26.5f, 281.9f, 540.6f));
+        .SetFixedPosition(60.0f, 245.25f, 464.21f));
 
     // 12) ALGORITMO
     doc.Add(new Paragraph("SHA-256 · AES-256 · UMG Basic Rover 2.0-2026")
         .SetFont(fontNormal)
-        .SetFontSize(7.5f)
+        .SetFontSize(7f)
         .SetFontColor(grisFirma)
-        .SetFixedPosition(26.5f, 258.9f, 540.6f));
+        .SetFixedPosition(60.0f, 215.68f, 464.21f));
 
     doc.Close();
     return ms.ToArray();
@@ -252,7 +243,7 @@ public class CredentialService : ICredentialService
         {
             var assembly = System.Reflection.Assembly.GetExecutingAssembly();
             var resource = assembly.GetManifestResourceNames()
-                .FirstOrDefault(n => n.EndsWith("fondo_credencial.jpeg", StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(n => n.EndsWith("fondo_credencial.png", StringComparison.OrdinalIgnoreCase));
 
             if (resource == null)
             {
