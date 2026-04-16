@@ -38,7 +38,7 @@
   <ItemGroup> 
     <ProjectReference Include="..\umg_basic_rover_application\umg_basic_rover_application.csproj" />
     <ProjectReference Include="..\umg_basic_rover_domain\umg_basic_rover_domain.csproj" />
-    <EmbeddedResource Include="Resources\fondo_credencial.jpeg" />
+    <EmbeddedResource Include="Resources\fondo_credencial.jpg" />
   </ItemGroup>
 
 </Project>
