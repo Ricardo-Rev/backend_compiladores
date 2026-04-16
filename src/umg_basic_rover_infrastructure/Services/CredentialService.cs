@@ -145,6 +145,14 @@ public class CredentialService : ICredentialService
     const float W = 595f;
     const float H = 893f;
     using var pdf = new PdfDocument(writer);
+
+    // Limpiar metadatos para evitar que aparezca "Guatemala, GT" u otra info del sistema
+    pdf.GetDocumentInfo().SetAuthor("");
+    pdf.GetDocumentInfo().SetCreator("");
+    pdf.GetDocumentInfo().SetKeywords("");
+    pdf.GetDocumentInfo().SetSubject("");
+    pdf.GetDocumentInfo().SetTitle("UMG Basic Rover 2.0 - Credencial de Acceso");
+
     using var doc = new Document(pdf, new PageSize(W, H));
     doc.SetMargins(0, 0, 0, 0);
 
@@ -234,21 +242,21 @@ public class CredentialService : ICredentialService
         .SetFixedPosition(70.0f, 215.68f, 454.0f));
 
     // ── CUADRO FIRMA + HIPERVÍNCULO AL VERIFICADOR ───────
-    // Izquierda: cuadro con datos de la firma (estilo candado)
-    var cyan_link  = new DeviceRgb(56, 189, 248);
-    var gris_box   = new DeviceRgb(200, 200, 200);
+    var cyan_link = new DeviceRgb(56, 189, 248);
+    var gris_box  = new DeviceRgb(200, 200, 200);
 
+    // Izquierda: cuadro con datos de la firma
     doc.Add(new Paragraph("🔒 NextTech Solutions | UMG")
         .SetFont(fontNormal).SetFontSize(7f).SetFontColor(gris_box)
-        .SetFixedPosition(70f, 192f, 180f));
+        .SetFixedPosition(70f, 198f, 180f));
 
     doc.Add(new Paragraph($"Date: {DateTime.Now:yyyy.MM.dd}")
         .SetFont(fontNormal).SetFontSize(7f).SetFontColor(gris_box)
-        .SetFixedPosition(70f, 181f, 180f));
+        .SetFixedPosition(70f, 187f, 180f));
 
     doc.Add(new Paragraph("Reason: UMG Basic Rover 2.0-2026")
         .SetFont(fontNormal).SetFontSize(7f).SetFontColor(gris_box)
-        .SetFixedPosition(70f, 170f, 180f));
+        .SetFixedPosition(70f, 176f, 180f));
 
     // Derecha: hipervínculo clickeable al verificador
     var link_verificador = new Link(
@@ -260,7 +268,7 @@ public class CredentialService : ICredentialService
             .SetFontColor(cyan_link)
             .SetFont(fontNormal)
             .SetFontSize(7.5f))
-        .SetFixedPosition(265f, 174f, 260f));
+        .SetFixedPosition(265f, 183f, 260f));
 
     doc.Close();
     return ms.ToArray();
