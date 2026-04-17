@@ -714,10 +714,10 @@ public class CredentialService : ICredentialService
             content.Add(pdf_content, "pdf", "credencial.pdf");
             content.Add(new StringContent("60"),  "firma_x");
             content.Add(new StringContent("180"), "firma_y");
-            content.Add(new StringContent("150"), "firma_ancho");
-            content.Add(new StringContent("10"),  "firma_alto");
+            content.Add(new StringContent("110"), "firma_ancho"); // ← más angosto
+            content.Add(new StringContent("25"),  "firma_alto");  // ← muy poco alto
             content.Add(new StringContent("1"),   "firma_pagina");
-            content.Add(new StringContent("3"), "firma_font_size");
+            content.Add(new StringContent("6"),   "firma_font_size");
 
             var response = await http.PostAsync($"{base_url}/sign", content);
 
