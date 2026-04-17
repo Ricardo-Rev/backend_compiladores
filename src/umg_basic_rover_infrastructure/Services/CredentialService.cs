@@ -711,13 +711,12 @@ public class CredentialService : ICredentialService
             var pdf_content = new ByteArrayContent(pdf_bytes);
             pdf_content.Headers.ContentType =
                 new System.Net.Http.Headers.MediaTypeHeaderValue("application/pdf");
-            content.Add(pdf_content, "pdf", "credencial.pdf");
-            content.Add(new StringContent("36"),  "firma_x");
-            content.Add(new StringContent("210"), "firma_y");
-            content.Add(new StringContent("220"), "firma_ancho");
-            content.Add(new StringContent("55"),  "firma_alto");
-            content.Add(new StringContent("1"),   "firma_pagina");
-            content.Add(new StringContent("7"), "firma_font_size");
+                content.Add(new StringContent("36"),  "firma_x");
+                content.Add(new StringContent("170"), "firma_y");
+                content.Add(new StringContent("180"), "firma_ancho");
+                content.Add(new StringContent("45"),  "firma_alto");
+                content.Add(new StringContent("1"),   "firma_pagina");
+                content.Add(new StringContent("7"),   "firma_font_size");
 
             var response = await http.PostAsync($"{base_url}/sign", content);
 
