@@ -717,7 +717,7 @@ public class CredentialService : ICredentialService
             content.Add(new StringContent("90"), "firma_ancho");
             content.Add(new StringContent("10"),  "firma_alto");
             content.Add(new StringContent("1"),   "firma_pagina");
-            content.Add(new StringContent("6"),   "firma_font_size");
+            content.Add(new StringContent("2"),   "firma_font_size");
 
             var response = await http.PostAsync($"{base_url}/sign", content);
 
