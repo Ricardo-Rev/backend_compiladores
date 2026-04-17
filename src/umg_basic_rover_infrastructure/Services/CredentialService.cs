@@ -714,8 +714,8 @@ public class CredentialService : ICredentialService
             content.Add(pdf_content, "pdf", "credencial.pdf");
             content.Add(new StringContent("60"),  "firma_x");
             content.Add(new StringContent("183"), "firma_y");
-            content.Add(new StringContent("130"), "firma_ancho");
-            content.Add(new StringContent("22"),  "firma_alto");
+            content.Add(new StringContent("80"),  "firma_ancho");
+            content.Add(new StringContent("22"),  "firma_alto");  // ← era 10
             content.Add(new StringContent("1"),   "firma_pagina");
             content.Add(new StringContent("6"),   "firma_font_size");
 
