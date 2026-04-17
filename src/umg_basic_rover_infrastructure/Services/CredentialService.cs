@@ -227,17 +227,17 @@ public class CredentialService : ICredentialService
    
     // Derecha: hipervínculo clickeable al verificador
     // ── HIPERVÍNCULO AL VERIFICADOR ──────────────────────
-    var cyan_link = new DeviceRgb(0, 255, 200);
-    var link_verificador = new Link(
-        "✅ Verificar autenticidad: nexttechsolutionspc.xyz/verify-credential",
-        PdfAction.CreateURI("https://www.nexttechsolutionspc.xyz/verify-credential")
-    );
-    doc.Add(new Paragraph()
-        .Add(link_verificador
-            .SetFontColor(cyan_link)
-            .SetFont(fontBold)
-            .SetFontSize(7.5f))
-        .SetFixedPosition(265f, 225f, 260f));
+        var cyan_link = new DeviceRgb(0, 255, 200);
+        var link_verificador = new Link(
+            "✅ Verificar autenticidad\nnexttechsolutionspc.xyz/verify-credential",
+            PdfAction.CreateURI("https://www.nexttechsolutionspc.xyz/verify-credential")
+        );
+        doc.Add(new Paragraph()
+            .Add(link_verificador
+                .SetFontColor(cyan_link)
+                .SetFont(fontBold)
+                .SetFontSize(7.5f))
+            .SetFixedPosition(265f, 215f, 260f));
 
     doc.Close();
     return ms.ToArray();
@@ -717,6 +717,7 @@ public class CredentialService : ICredentialService
             content.Add(new StringContent("220"), "firma_ancho");
             content.Add(new StringContent("55"),  "firma_alto");
             content.Add(new StringContent("1"),   "firma_pagina");
+            content.Add(new StringContent("7"), "firma_font_size");
 
             var response = await http.PostAsync($"{base_url}/sign", content);
 
