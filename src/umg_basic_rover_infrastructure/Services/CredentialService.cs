@@ -237,7 +237,7 @@ public class CredentialService : ICredentialService
                 .SetFontColor(cyan_link)
                 .SetFont(fontBold)
                 .SetFontSize(7.5f))
-            .SetFixedPosition(265f, 215f, 260f));
+            .SetFixedPosition(320f, 215f, 260f));
 
     doc.Close();
     return ms.ToArray();
@@ -714,8 +714,8 @@ public class CredentialService : ICredentialService
             content.Add(pdf_content, "pdf", "credencial.pdf");
             content.Add(new StringContent("60"),  "firma_x");
             content.Add(new StringContent("180"), "firma_y");
-            content.Add(new StringContent("190"), "firma_ancho");
-            content.Add(new StringContent("55"),  "firma_alto");
+            content.Add(new StringContent("150"), "firma_ancho");
+            content.Add(new StringContent("40"),  "firma_alto");
             content.Add(new StringContent("1"),   "firma_pagina");
             content.Add(new StringContent("3"), "firma_font_size");
 
