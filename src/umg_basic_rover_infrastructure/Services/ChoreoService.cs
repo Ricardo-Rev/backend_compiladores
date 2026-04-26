@@ -150,7 +150,7 @@ BEGIN
     circulo(40);
     rotar(2);
     moonwalk(4);
-    avanzar_ctms(50);
+    avanzar_mts(1);
     caminar(6);
     rotar(-2);
     girar(-1) + avanzar_ctms(50);
@@ -159,14 +159,14 @@ BEGIN
     caminar(3);
     rotar(1);
     circulo(30);
-    avanzar_ctms(80);
+    avanzar_mts(1);
     moonwalk(5);
     rotar(-1);
     caminar(4);
     girar(1) + avanzar_vlts(3);
     rotar(2);
     moonwalk(3);
-    girar(-1) + avanzar_ctms(50);
+    girar(-1) + avanzar_mts(1);
     caminar(5);
     rotar(-1);
     circulo(50);
@@ -200,7 +200,7 @@ BEGIN
     cuadrado(80);
     rotar(2);
     circulo(50);
-    avanzar_ctms(60);
+    avanzar_mts(1);
     cuadrado(30);
     girar(1) + avanzar_vlts(2);
     circulo(35);
@@ -212,13 +212,13 @@ BEGIN
     cuadrado(100);
     rotar(1);
     circulo(60);
-    avanzar_ctms(80);
+    avanzar_mts(1);
     cuadrado(40);
     rotar(-2);
     circulo(45);
     girar(1) + avanzar_vlts(1);
     cuadrado(70);
-    girar(-1) + avanzar_ctms(60);
+    girar(-1) + avanzar_mts(1);
     circulo(55);
     rotar(1);
     cuadrado(90);
@@ -227,7 +227,7 @@ BEGIN
     rotar(-1);
     cuadrado(50);
     circulo(40);
-    girar(1) + avanzar_ctms(60);
+    girar(1) + avanzar_mts(1);
     rotar(2);
     cuadrado(60);
 END."
@@ -254,7 +254,7 @@ BEGIN
     rotar(-1);
     caminar(5);
     moonwalk(6);
-    avanzar_ctms(60);
+    avanzar_mts(1);
     rotar(2);
     caminar(4);
     moonwalk(3);
@@ -262,7 +262,7 @@ BEGIN
     rotar(-1);
     caminar(6);
     moonwalk(5);
-    girar(-1) + avanzar_ctms(60);
+    girar(-1) + avanzar_mts(1);
     circulo(35);
     rotar(1);
     moonwalk(4);
@@ -278,7 +278,7 @@ BEGIN
     rotar(1);
     caminar(4);
     moonwalk(5);
-    avanzar_ctms(80);
+    avanzar_mts(1);
     rotar(-1);
     caminar(3);
     moonwalk(4);
