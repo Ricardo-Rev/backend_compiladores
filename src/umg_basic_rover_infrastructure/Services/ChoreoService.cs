@@ -62,25 +62,35 @@ public class ChoreoService : IChoreoService
             .FirstOrDefaultAsync(c => c.id == request.coreografia_id && c.activa)
             ?? throw new KeyNotFoundException($"Coreografía {request.coreografia_id} no encontrada.");
 
-        // Si viene código modificado, compilarlo; si no, devolver el original
-        int? compilacion_id = null;
+        // Si viene código modificado usar ese, si no usar el original
         var codigo_final = request.modificada && !string.IsNullOrWhiteSpace(request.codigo_modificado)
             ? request.codigo_modificado
             : coreo.codigo_fuente;
 
-        if (request.modificada && !string.IsNullOrWhiteSpace(request.codigo_modificado))
+        // Compilar SIEMPRE en modo arduino para generar comandos seriales al rover
+        int? compilacion_id  = null;
+        string? comandos_arduino = null;
+
+        var compile_req = new CompileRequest
         {
-            var compile_req = new CompileRequest
-            {
-                codigo_fuente    = codigo_final,
-                modo             = "compilar_simular",
-                lenguaje_destino = "python"
-            };
-            var result = await _compiler.CompileAsync(compile_req, usuario_id, sesion_id);
-            if (result.exitoso) compilacion_id = result.compilacion_id;
+            codigo_fuente    = codigo_final,
+            modo             = "compilar_ejecutar",
+            lenguaje_destino = "arduino"
+        };
+
+        var result = await _compiler.CompileAsync(compile_req, usuario_id, sesion_id);
+        if (result.exitoso)
+        {
+            compilacion_id   = result.compilacion_id;
+            comandos_arduino = result.codigo_transpilado;
+            _logger.LogInformation("[CHOREO] ✅ Comandos Arduino generados para '{n}'", coreo.nombre);
+        }
+        else
+        {
+            _logger.LogWarning("[CHOREO] ⚠️ Error al compilar coreografía '{n}'", coreo.nombre);
         }
 
-        // Registrar ejecución
+        // Registrar ejecución en BD
         _db.coreografias_ejecutadas.Add(new coreografia_ejecutada_entity
         {
             usuario_id      = usuario_id,
@@ -93,7 +103,6 @@ public class ChoreoService : IChoreoService
 
         _logger.LogInformation("[CHOREO] Coreografía '{n}' ejecutada por usuario {u}", coreo.nombre, usuario_id);
 
-        // Retornar con el código que se va a usar (original o modificado)
         return new ChoreoResponse
         {
             id               = coreo.id,
@@ -102,7 +111,8 @@ public class ChoreoService : IChoreoService
             codigo_fuente    = codigo_final,
             cancion_url      = coreo.cancion_url,
             cancion_nombre   = coreo.cancion_nombre,
-            duracion_min_seg = coreo.duracion_min_seg
+            duracion_min_seg = coreo.duracion_min_seg,
+            comandos_arduino = comandos_arduino
         };
     }
 
@@ -140,7 +150,7 @@ BEGIN
     circulo(40);
     rotar(2);
     moonwalk(4);
-    girar(0) + avanzar_mts(1);
+    avanzar_ctms(50);
     caminar(6);
     rotar(-2);
     girar(-1) + avanzar_ctms(50);
@@ -149,21 +159,21 @@ BEGIN
     caminar(3);
     rotar(1);
     circulo(30);
-    girar(0) + avanzar_mts(2);
+    avanzar_ctms(80);
     moonwalk(5);
     rotar(-1);
     caminar(4);
     girar(1) + avanzar_vlts(3);
     rotar(2);
     moonwalk(3);
-    girar(-1) + avanzar_mts(1);
+    girar(-1) + avanzar_ctms(50);
     caminar(5);
     rotar(-1);
     circulo(50);
     moonwalk(4);
     caminar(6);
     rotar(1);
-    girar(0) + avanzar_ctms(80);
+    avanzar_ctms(80);
     rotar(-2);
     moonwalk(2);
     caminar(3);
@@ -190,7 +200,7 @@ BEGIN
     cuadrado(80);
     rotar(2);
     circulo(50);
-    girar(0) + avanzar_mts(1);
+    avanzar_ctms(60);
     cuadrado(30);
     girar(1) + avanzar_vlts(2);
     circulo(35);
@@ -202,22 +212,22 @@ BEGIN
     cuadrado(100);
     rotar(1);
     circulo(60);
-    girar(0) + avanzar_mts(2);
+    avanzar_ctms(80);
     cuadrado(40);
     rotar(-2);
     circulo(45);
     girar(1) + avanzar_vlts(1);
     cuadrado(70);
-    girar(-1) + avanzar_mts(1);
+    girar(-1) + avanzar_ctms(60);
     circulo(55);
     rotar(1);
     cuadrado(90);
-    girar(0) + avanzar_ctms(60);
+    avanzar_ctms(60);
     circulo(30);
     rotar(-1);
     cuadrado(50);
     circulo(40);
-    girar(1) + avanzar_mts(1);
+    girar(1) + avanzar_ctms(60);
     rotar(2);
     cuadrado(60);
 END."
@@ -244,7 +254,7 @@ BEGIN
     rotar(-1);
     caminar(5);
     moonwalk(6);
-    girar(0) + avanzar_mts(1);
+    avanzar_ctms(60);
     rotar(2);
     caminar(4);
     moonwalk(3);
@@ -252,12 +262,12 @@ BEGIN
     rotar(-1);
     caminar(6);
     moonwalk(5);
-    girar(-1) + avanzar_mts(1);
+    girar(-1) + avanzar_ctms(60);
     circulo(35);
     rotar(1);
     moonwalk(4);
     caminar(3);
-    girar(0) + avanzar_ctms(50);
+    avanzar_ctms(50);
     moonwalk(6);
     rotar(-2);
     caminar(5);
@@ -268,7 +278,7 @@ BEGIN
     rotar(1);
     caminar(4);
     moonwalk(5);
-    girar(0) + avanzar_mts(2);
+    avanzar_ctms(80);
     rotar(-1);
     caminar(3);
     moonwalk(4);

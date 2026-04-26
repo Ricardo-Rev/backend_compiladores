@@ -87,6 +87,7 @@ public class ChoreoResponse
     public string?  cancion_url      { get; set; }
     public string?  cancion_nombre   { get; set; }
     public int      duracion_min_seg { get; set; }
+    public string?  comandos_arduino { get; set; }  // comandos seriales para el rover
 }
 
 public class ChoreoListResponse
