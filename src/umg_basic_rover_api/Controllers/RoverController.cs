@@ -192,61 +192,58 @@ public class RoverController : ControllerBase
 
     /// <summary>
     /// Extrae el nombre de instrucción desde instruccion_raw y construye
-    /// el comando serial usando los parámetros ya guardados en la BD.
+    /// el comando serial.
     ///
-    /// [BUG-3] Los parámetros son int? (nullable). Si el requerido es null
-    /// se retorna string.Empty para omitir la instrucción y loguear la anomalía,
-    /// evitando enviar "GR:" o "CIR:" sin número (que el Arduino parsea como 0).
+    /// Estrategia doble:
+    ///   1. Usa parametro_n/r/l de la BD cuando están disponibles.
+    ///   2. Si alguno es null (puede ocurrir con valores negativos en ciertas
+    ///      configuraciones de BD), lo extrae directamente desde instruccion_raw.
+    ///      Ejemplo: raw="girar(-1)" → parsea -1 desde el string → "GR:-1".
     ///
-    /// Ejemplos:
-    ///   raw="girar(-1)", parametro_n=-1  →  "GR:-1"
-    ///   raw="girar(1)",  parametro_n=1   →  "GR:1"
-    ///   raw="circulo(50)", parametro_r=50 → "CIR:50"
-    ///   raw="girar(1)",  parametro_n=null → "" (omitida)
+    /// Esto garantiza que girar(-1), rotar(-2), etc. siempre funcionen
+    /// independientemente de cómo la BD almacene los valores negativos.
     /// </summary>
     private static string ConstruirSerialDesdeRaw(string raw, instruccion_ejecutada_entity inst)
     {
         var idx    = raw.IndexOf('(');
         var nombre = idx > 0 ? raw[..idx].Trim().ToLower() : raw.Trim().ToLower();
 
+        // Leer parámetros de la BD
+        int? paramN = inst.parametro_n;
+        int? paramR = inst.parametro_r;
+        int? paramL = inst.parametro_l;
+
+        // Fallback: extraer el valor directamente desde instruccion_raw
+        // cuando los parámetros de BD son null (ej: valores negativos)
+        if (!paramN.HasValue && !paramR.HasValue && !paramL.HasValue && idx >= 0)
+        {
+            var fin = raw.LastIndexOf(')');
+            if (fin > idx)
+            {
+                var paramStr = raw[(idx + 1)..fin].Trim();
+                if (int.TryParse(paramStr, out int parsedVal))
+                {
+                    switch (nombre)
+                    {
+                        case "circulo":  paramR = parsedVal; break;
+                        case "cuadrado": paramL = parsedVal; break;
+                        default:         paramN = parsedVal; break;
+                    }
+                }
+            }
+        }
+
         return nombre switch
         {
-            "avanzar_vlts"                  => inst.parametro_n.HasValue
-                                                ? $"AV_VLT:{inst.parametro_n}"
-                                                : string.Empty,
-
-            "avanzar_ctms" or "avanzar_cms" => inst.parametro_n.HasValue
-                                                ? $"AV_CM:{inst.parametro_n}"
-                                                : string.Empty,
-
-            "avanzar_mts"                   => inst.parametro_n.HasValue
-                                                ? $"AV_MTS:{inst.parametro_n}"
-                                                : string.Empty,
-
-            "girar"                         => inst.parametro_n.HasValue
-                                                ? $"GR:{inst.parametro_n}"
-                                                : string.Empty,
-
-            "circulo"                       => inst.parametro_r.HasValue
-                                                ? $"CIR:{inst.parametro_r}"
-                                                : string.Empty,
-
-            "cuadrado"                      => inst.parametro_l.HasValue
-                                                ? $"CUA:{inst.parametro_l}"
-                                                : string.Empty,
-
-            "rotar"                         => inst.parametro_n.HasValue
-                                                ? $"ROT:{inst.parametro_n}"
-                                                : string.Empty,
-
-            "caminar"                       => inst.parametro_n.HasValue
-                                                ? $"CAM:{inst.parametro_n}"
-                                                : string.Empty,
-
-            "moonwalk"                      => inst.parametro_n.HasValue
-                                                ? $"MWK:{inst.parametro_n}"
-                                                : string.Empty,
-
+            "avanzar_vlts"                  => paramN.HasValue ? $"AV_VLT:{paramN}" : string.Empty,
+            "avanzar_ctms" or "avanzar_cms" => paramN.HasValue ? $"AV_CM:{paramN}"  : string.Empty,
+            "avanzar_mts"                   => paramN.HasValue ? $"AV_MTS:{paramN}" : string.Empty,
+            "girar"                         => paramN.HasValue ? $"GR:{paramN}"     : string.Empty,
+            "circulo"                       => paramR.HasValue ? $"CIR:{paramR}"    : string.Empty,
+            "cuadrado"                      => paramL.HasValue ? $"CUA:{paramL}"    : string.Empty,
+            "rotar"                         => paramN.HasValue ? $"ROT:{paramN}"    : string.Empty,
+            "caminar"                       => paramN.HasValue ? $"CAM:{paramN}"    : string.Empty,
+            "moonwalk"                      => paramN.HasValue ? $"MWK:{paramN}"    : string.Empty,
             _                               => string.Empty
         };
     }
