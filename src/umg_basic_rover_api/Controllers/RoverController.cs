@@ -65,7 +65,8 @@ public class RoverController : ControllerBase
         if (!instrucciones.Any())
             return BadRequest(new { error = "La compilación no tiene instrucciones para enviar." });
 
-        var comandos = new List<string>();
+        var comandos    = new List<string>();
+        var omitidas    = new List<string>();   // instrucciones que se saltaron por parámetro null
 
         foreach (var inst in instrucciones)
         {
@@ -80,12 +81,35 @@ public class RoverController : ControllerBase
             }
             else
             {
-                // Extraer nombre desde instruccion_raw: "girar(-1)" → "girar"
+                // [BUG-3] ConstruirSerialDesdeRaw ahora valida parámetros nullables
                 var serial = ConstruirSerialDesdeRaw(raw, inst);
                 if (!string.IsNullOrEmpty(serial))
+                {
                     comandos.Add(serial);
+                }
+                else
+                {
+                    omitidas.Add(raw);
+                    _logger.LogWarning(
+                        "[ROVER] Instrucción omitida — raw='{raw}', " +
+                        "parametro_n={n}, parametro_r={r}, parametro_l={l}. " +
+                        "El parámetro requerido es null en la BD.",
+                        raw, inst.parametro_n, inst.parametro_r, inst.parametro_l);
+                }
             }
         }
+
+        if (!comandos.Any())
+            return BadRequest(new
+            {
+                error = "Ninguna instrucción pudo convertirse a comando serial. " +
+                        $"Instrucciones omitidas: [{string.Join(", ", omitidas)}]."
+            });
+
+        if (omitidas.Any())
+            _logger.LogWarning(
+                "[ROVER] Compilación #{id}: {om} instrucción(es) omitida(s) por parámetros null: [{list}]",
+                request.compilacion_id, omitidas.Count, string.Join(", ", omitidas));
 
         _logger.LogInformation(
             "[ROVER] Compilación #{id}: {orig} filas → {exp} comandos: [{cmds}]",
@@ -128,7 +152,8 @@ public class RoverController : ControllerBase
         return Ok(new RoverExecuteResponse
         {
             exitoso             = true,
-            mensaje             = $"Instrucciones enviadas al rover. ({comandos.Count} comandos)",
+            mensaje             = $"Instrucciones enviadas al rover. ({comandos.Count} comandos)" +
+                                  (omitidas.Any() ? $" [{omitidas.Count} omitidas por parámetros null]" : ""),
             transmision_id      = transmision.id,
             compilacion_id      = request.compilacion_id,
             total_instrucciones = comandos.Count
@@ -168,10 +193,16 @@ public class RoverController : ControllerBase
     /// <summary>
     /// Extrae el nombre de instrucción desde instruccion_raw y construye
     /// el comando serial usando los parámetros ya guardados en la BD.
+    ///
+    /// [BUG-3] Los parámetros son int? (nullable). Si el requerido es null
+    /// se retorna string.Empty para omitir la instrucción y loguear la anomalía,
+    /// evitando enviar "GR:" o "CIR:" sin número (que el Arduino parsea como 0).
+    ///
     /// Ejemplos:
     ///   raw="girar(-1)", parametro_n=-1  →  "GR:-1"
     ///   raw="girar(1)",  parametro_n=1   →  "GR:1"
     ///   raw="circulo(50)", parametro_r=50 → "CIR:50"
+    ///   raw="girar(1)",  parametro_n=null → "" (omitida)
     /// </summary>
     private static string ConstruirSerialDesdeRaw(string raw, instruccion_ejecutada_entity inst)
     {
@@ -180,22 +211,50 @@ public class RoverController : ControllerBase
 
         return nombre switch
         {
-            "avanzar_vlts"                   => $"AV_VLT:{inst.parametro_n}",
-            "avanzar_ctms" or "avanzar_cms"  => $"AV_CM:{inst.parametro_n}",
-            "avanzar_mts"                    => $"AV_MTS:{inst.parametro_n}",
-            "girar"                          => $"GR:{inst.parametro_n}",
-            "circulo"                        => $"CIR:{inst.parametro_r}",
-            "cuadrado"                       => $"CUA:{inst.parametro_l}",
-            "rotar"                          => $"ROT:{inst.parametro_n}",
-            "caminar"                        => $"CAM:{inst.parametro_n}",
-            "moonwalk"                       => $"MWK:{inst.parametro_n}",
-            _                                => string.Empty
+            "avanzar_vlts"                  => inst.parametro_n.HasValue
+                                                ? $"AV_VLT:{inst.parametro_n}"
+                                                : string.Empty,
+
+            "avanzar_ctms" or "avanzar_cms" => inst.parametro_n.HasValue
+                                                ? $"AV_CM:{inst.parametro_n}"
+                                                : string.Empty,
+
+            "avanzar_mts"                   => inst.parametro_n.HasValue
+                                                ? $"AV_MTS:{inst.parametro_n}"
+                                                : string.Empty,
+
+            "girar"                         => inst.parametro_n.HasValue
+                                                ? $"GR:{inst.parametro_n}"
+                                                : string.Empty,
+
+            "circulo"                       => inst.parametro_r.HasValue
+                                                ? $"CIR:{inst.parametro_r}"
+                                                : string.Empty,
+
+            "cuadrado"                      => inst.parametro_l.HasValue
+                                                ? $"CUA:{inst.parametro_l}"
+                                                : string.Empty,
+
+            "rotar"                         => inst.parametro_n.HasValue
+                                                ? $"ROT:{inst.parametro_n}"
+                                                : string.Empty,
+
+            "caminar"                       => inst.parametro_n.HasValue
+                                                ? $"CAM:{inst.parametro_n}"
+                                                : string.Empty,
+
+            "moonwalk"                      => inst.parametro_n.HasValue
+                                                ? $"MWK:{inst.parametro_n}"
+                                                : string.Empty,
+
+            _                               => string.Empty
         };
     }
 
     /// <summary>
     /// Expande "girar(-1) + avanzar_ctms(30)" en comandos seriales:
     ///   → ["GR:-1", "AV_CM:30"]
+    /// int.TryParse ya filtra parámetros no numéricos de forma segura.
     /// </summary>
     private static List<string> ExpandirCombinada(string raw)
     {
@@ -217,16 +276,16 @@ public class RoverController : ControllerBase
 
             var serial = nombre switch
             {
-                "avanzar_vlts"                   => $"AV_VLT:{valor}",
-                "avanzar_ctms" or "avanzar_cms"  => $"AV_CM:{valor}",
-                "avanzar_mts"                    => $"AV_MTS:{valor}",
-                "girar"                          => $"GR:{valor}",
-                "circulo"                        => $"CIR:{valor}",
-                "cuadrado"                       => $"CUA:{valor}",
-                "rotar"                          => $"ROT:{valor}",
-                "caminar"                        => $"CAM:{valor}",
-                "moonwalk"                       => $"MWK:{valor}",
-                _                                => string.Empty
+                "avanzar_vlts"                  => $"AV_VLT:{valor}",
+                "avanzar_ctms" or "avanzar_cms" => $"AV_CM:{valor}",
+                "avanzar_mts"                   => $"AV_MTS:{valor}",
+                "girar"                         => $"GR:{valor}",
+                "circulo"                       => $"CIR:{valor}",
+                "cuadrado"                      => $"CUA:{valor}",
+                "rotar"                         => $"ROT:{valor}",
+                "caminar"                       => $"CAM:{valor}",
+                "moonwalk"                      => $"MWK:{valor}",
+                _                               => string.Empty
             };
 
             if (!string.IsNullOrEmpty(serial))
