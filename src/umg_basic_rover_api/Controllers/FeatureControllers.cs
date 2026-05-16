@@ -10,9 +10,10 @@ namespace umg_basic_rover_api.Controllers;
 
 // ============================================================
 //  CredentialController
-//  POST /api/credential/generate  → generar y enviar (llamado post-registro)
+//  POST /api/credential/generate  → generar y enviar
 //  POST /api/credential/resend    → reenviar credencial
 //  GET  /api/credential/mine      → ver mi credencial actual
+//  POST /api/credential/verify    → verificar autenticidad PDF
 // ============================================================
 
 [ApiController]
@@ -32,28 +33,18 @@ public class CredentialController : ControllerBase
         _logger     = logger;
     }
 
-    /// <summary>
-    /// Genera y envía la credencial PDF al usuario autenticado.
-    /// Se puede llamar justo después del registro exitoso.
-    /// </summary>
     [HttpPost("generate")]
     [ProducesResponseType(typeof(CredentialResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Generate()
     {
         var usuario_id = ObtenerUsuarioId();
         if (usuario_id == 0) return Unauthorized(new { error = "Token inválido." });
-
         try
         {
-            _logger.LogInformation("[CREDENTIAL-CTRL] Generando credencial para usuario {u}", usuario_id);
             var resultado = await _credential.GenerarYEnviarAsync(usuario_id);
             return Ok(resultado);
         }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { error = ex.Message });
-        }
+        catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[CREDENTIAL-CTRL] Error al generar credencial.");
@@ -61,16 +52,12 @@ public class CredentialController : ControllerBase
         }
     }
 
-    /// <summary>
-    /// Reenvía la credencial PDF al usuario (última generada o genera una nueva).
-    /// </summary>
     [HttpPost("resend")]
     [ProducesResponseType(typeof(CredentialResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> Resend()
     {
         var usuario_id = ObtenerUsuarioId();
         if (usuario_id == 0) return Unauthorized(new { error = "Token inválido." });
-
         try
         {
             var resultado = await _credential.ReenviarAsync(usuario_id);
@@ -83,12 +70,8 @@ public class CredentialController : ControllerBase
         }
     }
 
-    /// <summary>
-    /// Obtiene el estado de la última credencial generada para el usuario.
-    /// </summary>
     [HttpGet("mine")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Mine()
     {
         var usuario_id = ObtenerUsuarioId();
@@ -98,50 +81,28 @@ public class CredentialController : ControllerBase
             .AsNoTracking()
             .Where(c => c.usuario_id == usuario_id)
             .OrderByDescending(c => c.fecha_generacion)
-            .Select(c => new
-            {
-                c.id,
-                c.canal_envio,
-                c.estado_envio,
-                c.fecha_generacion,
-                c.fecha_envio,
-                tiene_pdf = c.archivo_base64 != null
-            })
+            .Select(c => new { c.id, c.canal_envio, c.estado_envio, c.fecha_generacion, c.fecha_envio, tiene_pdf = c.archivo_base64 != null })
             .FirstOrDefaultAsync();
 
-        if (credencial == null)
-            return NotFound(new { error = "No se ha generado una credencial aún." });
-
-        return Ok(credencial);
+        return credencial == null
+            ? NotFound(new { error = "No se ha generado una credencial aún." })
+            : Ok(credencial);
     }
-    
-    /// <summary>
-    /// Verifica si un PDF de credencial es auténtico.
-    /// </summary>
+
     [HttpPost("verify")]
     [AllowAnonymous]
     [Consumes("multipart/form-data")]
     [ProducesResponseType(typeof(VerificarCredencialResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Verify(IFormFile? pdf)
     {
-        if (pdf is null || pdf.Length == 0)
-            return BadRequest(new { error = "Archivo PDF requerido." });
-
-        if (!pdf.ContentType.Contains("pdf") &&
-            !pdf.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+        if (pdf is null || pdf.Length == 0) return BadRequest(new { error = "Archivo PDF requerido." });
+        if (!pdf.ContentType.Contains("pdf") && !pdf.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
             return BadRequest(new { error = "El archivo debe ser un PDF." });
-
         try
         {
             using var ms = new MemoryStream();
             await pdf.CopyToAsync(ms);
-            var pdf_bytes = ms.ToArray();
-
-            _logger.LogInformation("[CREDENTIAL-CTRL] Verificando PDF: {nombre} ({bytes} bytes)",
-                pdf.FileName, pdf_bytes.Length);
-
-            var resultado = await _credential.VerificarCredencialAsync(pdf_bytes);
+            var resultado = await _credential.VerificarCredencialAsync(ms.ToArray());
             return Ok(resultado);
         }
         catch (Exception ex)
@@ -150,6 +111,7 @@ public class CredentialController : ControllerBase
             return StatusCode(500, new { error = "Error al verificar la credencial." });
         }
     }
+
     private int ObtenerUsuarioId()
     {
         var uid_str = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -159,12 +121,6 @@ public class CredentialController : ControllerBase
 
 // ============================================================
 //  FileController
-//  GET    /api/file            → listar archivos del usuario
-//  GET    /api/file/{id}       → obtener archivo por ID
-//  POST   /api/file            → crear archivo .umgpp
-//  PUT    /api/file/{id}       → actualizar archivo
-//  DELETE /api/file/{id}       → eliminar archivo (soft delete)
-//  GET    /api/file/{id}/history → historial de versiones
 // ============================================================
 
 [ApiController]
@@ -184,65 +140,40 @@ public class FileController : ControllerBase
         _logger       = logger;
     }
 
-    /// <summary>Lista todos los archivos .umgpp del usuario autenticado.</summary>
     [HttpGet]
     [ProducesResponseType(typeof(List<FileListResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> List()
     {
         var usuario_id = ObtenerUsuarioId();
         if (usuario_id == 0) return Unauthorized();
-
-        var archivos = await _file_service.ListarAsync(usuario_id);
-        return Ok(archivos);
+        return Ok(await _file_service.ListarAsync(usuario_id));
     }
 
-    /// <summary>Obtiene el contenido completo de un archivo .umgpp.</summary>
     [HttpGet("{id:int}")]
     [ProducesResponseType(typeof(FileResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Get(int id)
     {
         var usuario_id = ObtenerUsuarioId();
         if (usuario_id == 0) return Unauthorized();
-
-        try
-        {
-            var archivo = await _file_service.ObtenerAsync(id, usuario_id);
-            return Ok(archivo);
-        }
-        catch (KeyNotFoundException ex)
-        {
-            return NotFound(new { error = ex.Message });
-        }
+        try { return Ok(await _file_service.ObtenerAsync(id, usuario_id)); }
+        catch (KeyNotFoundException ex) { return NotFound(new { error = ex.Message }); }
     }
 
-    /// <summary>Crea un nuevo archivo .umgpp. El nombre puede incluir o no la extensión.</summary>
     [HttpPost]
     [ProducesResponseType(typeof(FileResponse), StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Create([FromBody] CreateFileRequest request)
     {
-        if (!ModelState.IsValid)
-            return BadRequest(ModelState);
-
+        if (!ModelState.IsValid) return BadRequest(ModelState);
         var usuario_id = ObtenerUsuarioId();
         if (usuario_id == 0) return Unauthorized();
-
         try
         {
-            // Registrar acción en bitácora
             await RegistrarAccionAsync(usuario_id, "nuevo_archivo", $"Creando archivo: {request.nombre_archivo}");
-
             var archivo = await _file_service.CrearAsync(request, usuario_id);
-
             await RegistrarAccionAsync(usuario_id, "guardar_archivo", $"Archivo creado: {archivo.nombre_archivo} (ID: {archivo.id})");
-
             return CreatedAtAction(nameof(Get), new { id = archivo.id }, archivo);
         }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { error = ex.Message });
-        }
+        catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[FILE-CTRL] Error al crear archivo.");
@@ -250,29 +181,20 @@ public class FileController : ControllerBase
         }
     }
 
-    /// <summary>Actualiza el contenido de un archivo. Guarda la versión anterior en historial.</summary>
     [HttpPut("{id:int}")]
     [ProducesResponseType(typeof(FileResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateFileRequest request)
     {
-        if (!ModelState.IsValid)
-            return BadRequest(ModelState);
-
+        if (!ModelState.IsValid) return BadRequest(ModelState);
         var usuario_id = ObtenerUsuarioId();
         if (usuario_id == 0) return Unauthorized();
-
         try
         {
             var archivo = await _file_service.ActualizarAsync(id, request, usuario_id);
-            await RegistrarAccionAsync(usuario_id, "guardar_archivo",
-                $"Archivo actualizado: {archivo.nombre_archivo} → v{archivo.version}");
+            await RegistrarAccionAsync(usuario_id, "guardar_archivo", $"Archivo actualizado: {archivo.nombre_archivo} → v{archivo.version}");
             return Ok(archivo);
         }
-        catch (KeyNotFoundException ex)
-        {
-            return NotFound(new { error = ex.Message });
-        }
+        catch (KeyNotFoundException ex) { return NotFound(new { error = ex.Message }); }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[FILE-CTRL] Error al actualizar archivo {id}.", id);
@@ -280,78 +202,46 @@ public class FileController : ControllerBase
         }
     }
 
-    /// <summary>Elimina un archivo (soft delete). Las compilaciones asociadas se mantienen.</summary>
     [HttpDelete("{id:int}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(int id)
     {
         var usuario_id = ObtenerUsuarioId();
         if (usuario_id == 0) return Unauthorized();
-
-        try
-        {
-            await _file_service.EliminarAsync(id, usuario_id);
-            return NoContent();
-        }
-        catch (KeyNotFoundException ex)
-        {
-            return NotFound(new { error = ex.Message });
-        }
+        try { await _file_service.EliminarAsync(id, usuario_id); return NoContent(); }
+        catch (KeyNotFoundException ex) { return NotFound(new { error = ex.Message }); }
     }
-    
+
     [HttpGet("{id:int}/history")]
     [ProducesResponseType(typeof(List<FileListResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> History(int id)
     {
         var usuario_id = ObtenerUsuarioId();
         if (usuario_id == 0) return Unauthorized();
-
-        try
-        {
-            var historial = await _file_service.ObtenerHistorialAsync(id, usuario_id);
-            return Ok(historial);
-        }
-        catch (KeyNotFoundException ex)
-        {
-            return NotFound(new { error = ex.Message });
-        }
+        try { return Ok(await _file_service.ObtenerHistorialAsync(id, usuario_id)); }
+        catch (KeyNotFoundException ex) { return NotFound(new { error = ex.Message }); }
     }
 
-    /// <summary>Retorna el contenido completo de una versión específica del historial.</summary>
     [HttpGet("{id:int}/history/{version:int}")]
     [ProducesResponseType(typeof(FileResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> HistoryVersion(int id, int version)
     {
         var usuario_id = ObtenerUsuarioId();
         if (usuario_id == 0) return Unauthorized();
-
         try
         {
             var entrada = await _db.historial_archivos
                 .AsNoTracking()
-                .FirstOrDefaultAsync(h => h.archivo_id == id
-                                    && h.version    == version
-                                    && h.usuario_id == usuario_id)
+                .FirstOrDefaultAsync(h => h.archivo_id == id && h.version == version && h.usuario_id == usuario_id)
                 ?? throw new KeyNotFoundException($"Versión {version} no encontrada.");
-
             return Ok(new FileResponse
             {
-                id                 = entrada.id,
-                nombre_archivo     = $"v{entrada.version}",
-                contenido          = entrada.contenido,
-                version            = entrada.version,
-                descripcion        = entrada.comentario,
-                es_coreografia     = false,
-                fecha_creacion     = entrada.fecha_guardado,
-                fecha_modificacion = entrada.fecha_guardado,
+                id = entrada.id, nombre_archivo = $"v{entrada.version}", contenido = entrada.contenido,
+                version = entrada.version, descripcion = entrada.comentario, es_coreografia = false,
+                fecha_creacion = entrada.fecha_guardado, fecha_modificacion = entrada.fecha_guardado,
             });
         }
-        catch (KeyNotFoundException ex)
-        {
-            return NotFound(new { error = ex.Message });
-        }
+        catch (KeyNotFoundException ex) { return NotFound(new { error = ex.Message }); }
     }
 
     private int ObtenerUsuarioId()
@@ -364,34 +254,36 @@ public class FileController : ControllerBase
     {
         try
         {
-            var sesion = await _db.sesiones
-                .AsNoTracking()
+            var sesion = await _db.sesiones.AsNoTracking()
                 .Where(s => s.usuario_id == usuario_id && s.activa)
-                .OrderByDescending(s => s.fecha_login)
-                .Select(s => s.id)
-                .FirstOrDefaultAsync();
-
+                .OrderByDescending(s => s.fecha_login).Select(s => s.id).FirstOrDefaultAsync();
             if (sesion == 0) return;
-
             _db.bitacora_acciones.Add(new umg_basic_rover_domain.entities.bitacora_accion_entity
-            {
-                usuario_id  = usuario_id,
-                sesion_id   = sesion,
-                tipo_accion = tipo_accion,
-                descripcion = descripcion,
-                fecha_accion = DateTime.Now
-            });
+            { usuario_id = usuario_id, sesion_id = sesion, tipo_accion = tipo_accion, descripcion = descripcion, fecha_accion = DateTime.Now });
             await _db.SaveChangesAsync();
         }
-        catch { /* No romper el flujo principal si la bitácora falla */ }
+        catch { /* No romper el flujo principal */ }
     }
 }
 
 // ============================================================
 //  ChoreoController
-//  GET  /api/choreo           → listar coreografías disponibles
-//  GET  /api/choreo/{id}      → obtener coreografía con código
-//  POST /api/choreo/execute   → ejecutar/registrar ejecución
+//
+//  Público (conductor):
+//    GET  /api/choreo           → listar coreografías activas
+//    GET  /api/choreo/{id}      → obtener coreografía + cancion_url
+//    POST /api/choreo/execute   → registrar ejecución
+//
+//  Administración (solo rol "administrador"):
+//    GET    /api/choreo/admin        → listar todas (activas + inactivas)
+//    POST   /api/choreo/admin        → crear nueva coreografía
+//    PUT    /api/choreo/admin/{id}   → actualizar (cancion_url, código, etc.)
+//    DELETE /api/choreo/admin/{id}   → desactivar (soft delete)
+//
+//  Para asignar una canción a una coreografía:
+//    PUT /api/choreo/admin/{id}
+//    Body: { "cancion_url": "https://res.cloudinary.com/.../cancion.mp3",
+//            "cancion_nombre": "Thriller — Michael Jackson" }
 // ============================================================
 
 [ApiController]
@@ -411,20 +303,19 @@ public class ChoreoController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>
-    /// Lista las coreografías pregrabadas disponibles.
-    /// Las siembra automáticamente si aún no existen en BD.
-    /// </summary>
+    // ── Público ──────────────────────────────────────────────
+
+    /// <summary>Lista las coreografías activas para el menú del editor.</summary>
     [HttpGet]
     [ProducesResponseType(typeof(List<ChoreoListResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> List()
     {
-        var coreografias = await _choreo.ListarAsync();
-        return Ok(coreografias);
+        return Ok(await _choreo.ListarAsync());
     }
 
     /// <summary>
-    /// Obtiene una coreografía con su código UMG++ completo para cargar en el editor.
+    /// Obtiene una coreografía con su código UMG++ y la URL directa al archivo MP3.
+    /// El frontend usa cancion_url en el elemento HTML5 &lt;audio&gt;.
     /// </summary>
     [HttpGet("{id:int}")]
     [ProducesResponseType(typeof(ChoreoResponse), StatusCodes.Status200OK)]
@@ -434,53 +325,26 @@ public class ChoreoController : ControllerBase
         try
         {
             var coreo = await _choreo.ObtenerAsync(id);
-
-            // Bitácora
-            await RegistrarCargaCoreografiaAsync(id);
-
+            await RegistrarCargaAsync(id);
             return Ok(coreo);
         }
-        catch (KeyNotFoundException ex)
-        {
-            return NotFound(new { error = ex.Message });
-        }
+        catch (KeyNotFoundException ex) { return NotFound(new { error = ex.Message }); }
     }
 
-    /// <summary>
-    /// Registra la ejecución de una coreografía.
-    /// Si viene código modificado, lo compila y simula también.
-    /// </summary>
+    /// <summary>Registra y opcionalmente re-compila la ejecución de una coreografía.</summary>
     [HttpPost("execute")]
     [ProducesResponseType(typeof(ChoreoResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Execute([FromBody] ChoreoExecuteRequest request)
     {
-        if (!ModelState.IsValid)
-            return BadRequest(ModelState);
-
+        if (!ModelState.IsValid) return BadRequest(ModelState);
         var usuario_id = ObtenerUsuarioId();
         if (usuario_id == 0) return Unauthorized(new { error = "Token inválido." });
-
-        var sesion = await _db.sesiones
-            .AsNoTracking()
+        var sesion = await _db.sesiones.AsNoTracking()
             .Where(s => s.usuario_id == usuario_id && s.activa)
-            .OrderByDescending(s => s.fecha_login)
-            .Select(s => s.id)
-            .FirstOrDefaultAsync();
-
-        if (sesion == 0)
-            return Unauthorized(new { error = "No hay sesión activa." });
-
-        try
-        {
-            var resultado = await _choreo.EjecutarAsync(request, usuario_id, sesion);
-            return Ok(resultado);
-        }
-        catch (KeyNotFoundException ex)
-        {
-            return NotFound(new { error = ex.Message });
-        }
+            .OrderByDescending(s => s.fecha_login).Select(s => s.id).FirstOrDefaultAsync();
+        if (sesion == 0) return Unauthorized(new { error = "No hay sesión activa." });
+        try { return Ok(await _choreo.EjecutarAsync(request, usuario_id, sesion)); }
+        catch (KeyNotFoundException ex) { return NotFound(new { error = ex.Message }); }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[CHOREO-CTRL] Error al ejecutar coreografía {id}.", request.coreografia_id);
@@ -488,37 +352,113 @@ public class ChoreoController : ControllerBase
         }
     }
 
+    // ── Administración ────────────────────────────────────────
+
+    /// <summary>
+    /// Lista TODAS las coreografías (activas e inactivas) para el panel admin.
+    /// Incluye URL de canción, total de ejecuciones y estado.
+    /// </summary>
+    [HttpGet("admin")]
+    [Authorize(Roles = "administrador")]
+    [ProducesResponseType(typeof(List<ChoreoAdminItem>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> AdminList()
+    {
+        return Ok(await _choreo.ListarAdminAsync());
+    }
+
+    /// <summary>
+    /// Crea una nueva coreografía.
+    /// Para agregar música: incluir cancion_url con URL directa al MP3.
+    /// La URL debe ser accesible públicamente con CORS habilitado.
+    /// Recomendado: Cloudinary (https://res.cloudinary.com/...).
+    /// </summary>
+    [HttpPost("admin")]
+    [Authorize(Roles = "administrador")]
+    [ProducesResponseType(typeof(ChoreoResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> AdminCreate([FromBody] ChoreoCreateRequest request)
+    {
+        if (!ModelState.IsValid) return BadRequest(ModelState);
+        var usuario_id = ObtenerUsuarioId();
+        if (usuario_id == 0) return Unauthorized();
+        try
+        {
+            var coreo = await _choreo.CrearAsync(request, usuario_id);
+            _logger.LogInformation("[CHOREO-CTRL] Coreografía creada: {n} (cancion_url: {url})", coreo.nombre, coreo.cancion_url ?? "sin canción");
+            return CreatedAtAction(nameof(Get), new { id = coreo.id }, coreo);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[CHOREO-CTRL] Error al crear coreografía.");
+            return StatusCode(500, new { error = "Error al crear la coreografía." });
+        }
+    }
+
+    /// <summary>
+    /// Actualiza una coreografía existente.
+    ///
+    /// Para actualizar solo la canción:
+    ///   { "cancion_url": "https://res.cloudinary.com/mi-cuenta/video/upload/cancion.mp3",
+    ///     "cancion_nombre": "Thriller — Michael Jackson" }
+    ///
+    /// Para quitar la canción:
+    ///   { "limpiar_cancion": true }
+    ///
+    /// Solo los campos enviados se actualizan (null = sin cambio).
+    /// </summary>
+    [HttpPut("admin/{id:int}")]
+    [Authorize(Roles = "administrador")]
+    [ProducesResponseType(typeof(ChoreoResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> AdminUpdate(int id, [FromBody] ChoreoUpdateRequest request)
+    {
+        try
+        {
+            var coreo = await _choreo.ActualizarAsync(id, request);
+            _logger.LogInformation("[CHOREO-CTRL] Coreografía {id} actualizada (cancion_url: {url})", id, coreo.cancion_url ?? "sin canción");
+            return Ok(coreo);
+        }
+        catch (KeyNotFoundException ex) { return NotFound(new { error = ex.Message }); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[CHOREO-CTRL] Error al actualizar coreografía {id}.", id);
+            return StatusCode(500, new { error = "Error al actualizar la coreografía." });
+        }
+    }
+
+    /// <summary>Desactiva una coreografía (soft delete). No elimina datos ni ejecuciones.</summary>
+    [HttpDelete("admin/{id:int}")]
+    [Authorize(Roles = "administrador")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> AdminDelete(int id)
+    {
+        try { await _choreo.EliminarAsync(id); return NoContent(); }
+        catch (KeyNotFoundException ex) { return NotFound(new { error = ex.Message }); }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────
+
     private int ObtenerUsuarioId()
     {
         var uid_str = User.FindFirstValue(ClaimTypes.NameIdentifier);
         return int.TryParse(uid_str, out int id) ? id : 0;
     }
 
-    private async Task RegistrarCargaCoreografiaAsync(int coreografia_id)
+    private async Task RegistrarCargaAsync(int coreografia_id)
     {
         try
         {
             var usuario_id = ObtenerUsuarioId();
             if (usuario_id == 0) return;
-
-            var sesion = await _db.sesiones
-                .AsNoTracking()
+            var sesion = await _db.sesiones.AsNoTracking()
                 .Where(s => s.usuario_id == usuario_id && s.activa)
-                .OrderByDescending(s => s.fecha_login)
-                .Select(s => s.id)
-                .FirstOrDefaultAsync();
+                .OrderByDescending(s => s.fecha_login).Select(s => s.id).FirstOrDefaultAsync();
             if (sesion == 0) return;
-
             _db.bitacora_acciones.Add(new umg_basic_rover_domain.entities.bitacora_accion_entity
-            {
-                usuario_id   = usuario_id,
-                sesion_id    = sesion,
-                tipo_accion  = "cargar_coreografia",
-                descripcion  = $"Coreografía ID:{coreografia_id} cargada en editor.",
-                fecha_accion = DateTime.Now
-            });
+            { usuario_id = usuario_id, sesion_id = sesion, tipo_accion = "cargar_coreografia", descripcion = $"Coreografía ID:{coreografia_id} cargada en editor.", fecha_accion = DateTime.Now });
             await _db.SaveChangesAsync();
         }
-        catch { /* No romper el flujo si la bitácora falla */ }
+        catch { /* No romper el flujo */ }
     }
 }
