@@ -26,4 +26,7 @@ public class RoverHubNotifier : IRoverHubNotifier
 
     public async Task NotificarProgresoAsync(object data) =>
         await _hub.Clients.All.SendAsync("RoverProgreso", data);
+
+    public async Task NotificarSystemStatusAsync(object data) =>
+        await _hub.Clients.All.SendAsync("RoverSystemStatus", data);
 }

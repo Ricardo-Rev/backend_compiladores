@@ -20,3 +20,17 @@ public class RoverStopResponse
     public bool   exitoso { get; set; }
     public string mensaje { get; set; } = string.Empty;
 }
+
+public class RoverSystemControlRequest
+{
+    public string action { get; set; } = string.Empty;
+    public string? reason { get; set; }
+}
+
+public class RoverSystemControlResponse
+{
+    public bool exitoso { get; set; }
+    public string mensaje { get; set; } = string.Empty;
+    public string action { get; set; } = string.Empty;
+    public DateTime timestamp { get; set; } = DateTime.UtcNow;
+}

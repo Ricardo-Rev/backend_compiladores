@@ -18,4 +18,7 @@ public interface IRoverHubNotifier
 
     /// <summary>Progreso durante una compilación: instrucción N de N</summary>
     Task NotificarProgresoAsync(object data);
+
+    /// <summary>Estado de acciones administrativas de la Raspberry.</summary>
+    Task NotificarSystemStatusAsync(object data);
 }

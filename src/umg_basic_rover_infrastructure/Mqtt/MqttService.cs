@@ -35,8 +35,10 @@ public class MqttService : IMqttService, IAsyncDisposable
 
     private const string TOPIC_FILE   = "rover/file/send";
     private const string TOPIC_STOP   = "rover/stop";
-    private const string TOPIC_ACK    = "rover/ack";
-    private const string TOPIC_STATUS = "rover/status";
+    private const string TOPIC_ACK           = "rover/ack";
+    private const string TOPIC_STATUS        = "rover/status";
+    private const string TOPIC_SYSTEM_CONTROL = "rover/system/control";
+    private const string TOPIC_SYSTEM_STATUS  = "rover/system/status";
 
     private static readonly JsonSerializerOptions _jsonOpts = new()
     {
@@ -55,10 +57,21 @@ public class MqttService : IMqttService, IAsyncDisposable
         _logger = logger;
         _hub    = hub;
 
-        var broker   = config["Mqtt:Broker"]   ?? throw new InvalidOperationException("Mqtt:Broker no configurado.");
-        var port     = int.Parse(config["Mqtt:Port"] ?? "8883");
-        var user     = config["Mqtt:User"]     ?? throw new InvalidOperationException("Mqtt:User no configurado.");
-        var password = config["Mqtt:Password"] ?? throw new InvalidOperationException("Mqtt:Password no configurado.");
+        // Acepta configuración tanto por appsettings (Mqtt:*) como por variables
+        // de entorno usadas también en la Raspberry (MQTT_*). Esto evita que
+        // el backend quede sin broker en Azure/Railway cuando solo se cargan env vars.
+        var broker = Environment.GetEnvironmentVariable("MQTT_BROKER")
+                     ?? config["Mqtt:Broker"]
+                     ?? throw new InvalidOperationException("Mqtt:Broker o MQTT_BROKER no configurado.");
+        var port = int.Parse(Environment.GetEnvironmentVariable("MQTT_PORT")
+                             ?? config["Mqtt:Port"]
+                             ?? "8883");
+        var user = Environment.GetEnvironmentVariable("MQTT_USER")
+                   ?? config["Mqtt:User"]
+                   ?? throw new InvalidOperationException("Mqtt:User o MQTT_USER no configurado.");
+        var password = Environment.GetEnvironmentVariable("MQTT_PASSWORD")
+                       ?? config["Mqtt:Password"]
+                       ?? throw new InvalidOperationException("Mqtt:Password o MQTT_PASSWORD no configurado.");
 
         var factory = new MqttFactory();
         _client = factory.CreateMqttClient();
@@ -118,7 +131,9 @@ public class MqttService : IMqttService, IAsyncDisposable
             MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce);
         await _client.SubscribeAsync(TOPIC_STATUS,
             MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce);
-        _logger.LogInformation("[MQTT] Suscrito a {ack} y {status}", TOPIC_ACK, TOPIC_STATUS);
+        await _client.SubscribeAsync(TOPIC_SYSTEM_STATUS,
+            MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce);
+        _logger.LogInformation("[MQTT] Suscrito a {ack}, {status} y {systemStatus}", TOPIC_ACK, TOPIC_STATUS, TOPIC_SYSTEM_STATUS);
     }
 
     // ── [BUG-1] Conexión thread-safe con doble verificación ──────────────────
@@ -171,6 +186,10 @@ public class MqttService : IMqttService, IAsyncDisposable
             else if (topic == TOPIC_STATUS)
             {
                 await _hub.NotificarStatusAsync(data);
+            }
+            else if (topic == TOPIC_SYSTEM_STATUS)
+            {
+                await _hub.NotificarSystemStatusAsync(data);
             }
         }
         catch (Exception ex)
@@ -245,6 +264,40 @@ public class MqttService : IMqttService, IAsyncDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "[MQTT] Error al publicar STOP.");
+            return false;
+        }
+    }
+
+
+    public async Task<bool> PublicarSystemControlAsync(string action, string? reason = null)
+    {
+        try
+        {
+            await AsegurarConexionAsync();
+
+            var payloadObj = new
+            {
+                action,
+                reason,
+                source = "backend",
+                timestamp = DateTime.UtcNow
+            };
+
+            var json = JsonSerializer.Serialize(payloadObj, _jsonOpts);
+            var message = new MqttApplicationMessageBuilder()
+                .WithTopic(TOPIC_SYSTEM_CONTROL)
+                .WithPayload(Encoding.UTF8.GetBytes(json))
+                .WithQualityOfServiceLevel(
+                    MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
+                .Build();
+
+            await _client.PublishAsync(message);
+            _logger.LogWarning("[MQTT] Acción administrativa publicada en {topic}: {action}", TOPIC_SYSTEM_CONTROL, action);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[MQTT] Error al publicar acción administrativa del sistema.");
             return false;
         }
     }

@@ -10,5 +10,13 @@ public interface IMqttService
     /// </summary>
     Task<bool> PublicarEjecucionAsync(int compilacion_id, List<string> comandos_serial);
     Task<bool> PublicarStopAsync();
+
+    /// <summary>
+    /// Publica una acción administrativa para la Raspberry.
+    /// El comando lo ejecuta rover-control.service, no el backend directamente.
+    /// Acciones permitidas: start_service, stop_service, restart_service, pause, reboot_pi, shutdown_pi.
+    /// </summary>
+    Task<bool> PublicarSystemControlAsync(string action, string? reason = null);
+
     bool EstaConectado { get; }
 }

@@ -186,6 +186,61 @@ public class RoverController : ControllerBase
     }
 
 
+    [HttpPost("system-control")]
+    [ProducesResponseType(typeof(RoverSystemControlResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> SystemControl([FromBody] RoverSystemControlRequest request)
+    {
+        var action = (request.action ?? string.Empty).Trim().ToLowerInvariant();
+        var permitidas = new HashSet<string>
+        {
+            "start_service",
+            "stop_service",
+            "restart_service",
+            "pause",
+            "reboot_pi",
+            "shutdown_pi"
+        };
+
+        if (!permitidas.Contains(action))
+        {
+            return BadRequest(new
+            {
+                error = "Acción no permitida.",
+                acciones_permitidas = permitidas.OrderBy(x => x).ToArray()
+            });
+        }
+
+        bool enviado;
+        string mensaje;
+
+        if (action == "pause")
+        {
+            enviado = await _mqtt.PublicarStopAsync();
+            mensaje = enviado
+                ? "Pausa/STOP enviado al rover. El servicio queda activo."
+                : "No se pudo enviar la pausa/STOP al rover.";
+        }
+        else
+        {
+            enviado = await _mqtt.PublicarSystemControlAsync(action, request.reason);
+            mensaje = enviado
+                ? $"Acción administrativa enviada a la Raspberry: {action}."
+                : $"No se pudo enviar la acción administrativa: {action}.";
+        }
+
+        _logger.LogWarning("[ROVER-SYSTEM] action={action}, enviado={enviado}, reason={reason}", action, enviado, request.reason);
+
+        return Ok(new RoverSystemControlResponse
+        {
+            exitoso = enviado,
+            mensaje = mensaje,
+            action = action,
+            timestamp = DateTime.UtcNow
+        });
+    }
+
+
     // ════════════════════════════════════════════════════════════════
     // HELPERS PRIVADOS
     // ════════════════════════════════════════════════════════════════
